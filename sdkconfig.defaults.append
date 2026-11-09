@@ -1,0 +1,62 @@
+
+# --- PYXIS Big Six additions ---
+
+# Console on UART0 (the board's "UART" Type-C port, used for flashing and logs).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Bluetooth LE: central only (connects to the camera), NimBLE host.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=y
+CONFIG_BT_NIMBLE_SM_LEGACY=y
+CONFIG_BT_NIMBLE_SM_SC=y
+# Keep the pairing across power cycles
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+# NimBLE buffers in PSRAM, leaving internal RAM for the display
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+
+# The UI uses its own Inter fonts (main/font_*.c); no extra built-in fonts needed.
+
+# No FPS/CPU overlay on the display
+CONFIG_LV_USE_PERF_MONITOR=n
+
+# NimBLE: warnings and errors only (its INFO lines log every GATT step)
+CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
+# Ask the camera for bigger ATT packets, so its settings burst arrives in fewer of them
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
+
+# LVGL allocates from the system heap (its larger blocks land in PSRAM), not its own 64 KB pool
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+
+# Smoother touch and animation: full CPU speed (the CPU also refills the display's bounce
+# buffers from PSRAM), and LVGL redraws and reads touch every 16 ms instead of 33 ms, so it
+# keeps up with the panel's own ~39 Hz refresh (16 MHz pixel clock, 820 x 500 total frame).
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_LV_DEF_REFR_PERIOD=16
+
+# Rounded corners: LVGL caches the anti-aliased corner masks per radius. The UI uses about a dozen
+# radii (tiles, pills, round buttons, the lock knob), more than the default 4, so the masks were
+# being rebuilt on every frame the lock slider moved.
+CONFIG_LV_DRAW_SW_CIRCLE_CACHE_SIZE=16
+
+# Wi-Fi updates (Settings > Update): two app slots (partitions.csv), and roll back to the previous
+# firmware if a new one fails to start (it marks itself good after running for 10 s).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Wi-Fi and its network stack use PSRAM where they can, leaving internal RAM for Bluetooth and the
+# display. Wi-Fi only runs while an update is being received.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024

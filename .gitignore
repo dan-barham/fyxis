@@ -1,0 +1,32 @@
+.DS_Store
+
+# Build output and fetched dependencies (firmware/fetch_deps.sh fetches them again)
+firmware/build/
+firmware/deps/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/build.log
+# firmware/main/ gets copies of ../main/*.c by fetch_deps.sh; only these two files live there
+firmware/main/*
+!firmware/main/main.c
+!firmware/main/CMakeLists.txt
+
+usb-probe/build/
+usb-probe/deps
+usb-probe/sdkconfig
+usb-probe/build.log
+
+sim/build/
+sim/bigsix_sim
+sim/lvgl/
+
+# Firmware images go on the GitHub Releases page, not in the repository
+*.bin
+!firmware/patches/*
+
+# Earlier working versions, kept locally
+/archive/
+
+# Local tools
+.claude/
+/enclosure/archive/

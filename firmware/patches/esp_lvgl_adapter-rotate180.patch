@@ -1,0 +1,30 @@
+--- a/src/display/display_manager.c
++++ b/src/display/display_manager.c
+@@ -1420,7 +1420,7 @@
+     /* Rotation 90° or 270° always requires 3 buffers for rotation processing.
+      * DOUBLE_PARTIAL has its own drawing buffers and is out of scope here.
+      */
+-    if ((rotation == ESP_LV_ADAPTER_ROTATE_90 || rotation == ESP_LV_ADAPTER_ROTATE_270)
++    if (rotation != ESP_LV_ADAPTER_ROTATE_0  /* Big Six patch: 180 too (DOUBLE_DIRECT needs a render buffer) */
+             && tear_avoid_mode != ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_PARTIAL) {
+         return 3;
+     }
+--- a/src/display/bridge/v9/lvgl_bridge_v9.c
++++ b/src/display/bridge/v9/lvgl_bridge_v9.c
+@@ -1979,6 +1979,16 @@
+         return;
+     }
+ #endif /* CONFIG_SOC_PPA_SUPPORTED */
++
++    /* Big Six patch: without PPA the code below rotates the whole w x h image for every dirty
++     * area (twice a frame in DOUBLE_DIRECT), ignoring x/y start/end. At 180 degrees the logical and
++     * physical sizes match, so copy just the area asked for. */
++    if (rotation == ESP_LV_ADAPTER_ROTATE_180) {
++        const uint8_t *src = (const uint8_t *)from + ((size_t)y_start * w + x_start) * color_bytes;
++        display_rotate_copy_region(src, to, x_start, y_start, x_end, y_end, w, w, h,
++                                   rotation, color_bytes, impl->block_size_small, impl->block_size_large);
++        return;
++    }
+ 
+     int deg = 0;
+     switch (rotation) {
