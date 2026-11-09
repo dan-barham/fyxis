@@ -55,7 +55,7 @@ Full parts list and wiring: [docs/hardware.md](docs/hardware.md).
 > cable unplugged; plug the camera in only after the computer is disconnected.
 
 1. **Flash the firmware.** Download `fyxis-<version>-full.bin` from
-   [Releases](../../releases) and write it at 0x0 with Espressif's web flasher in Chrome. No tools to
+   [Releases](https://github.com/dan-barham/fyxis/releases) and write it at 0x0 with Espressif's web flasher in Chrome. No tools to
    install. Step by step: [docs/building.md](docs/building.md#flashing-no-tools-needed).
 2. **Print the case.** Files and settings in [enclosure/](enclosure/README.md).
 3. **Wire the REC key** to the board's sensor header: [docs/hardware.md](docs/hardware.md#physical-rec-button).

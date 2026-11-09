@@ -6,7 +6,7 @@
 
 ## Flashing (no tools needed)
 
-`fyxis-<version>-full.bin` from the [Releases page](../../../releases) is the complete image (bootloader,
+`fyxis-<version>-full.bin` from the [Releases page](https://github.com/dan-barham/fyxis/releases) is the complete image (bootloader,
 partition table, app) to write at **0x0**. Use it for a first install. After that, update over Wi-Fi
 (Settings › Update) with `fyxis-<version>-update.bin`.
 

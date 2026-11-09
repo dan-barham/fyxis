@@ -89,7 +89,7 @@ change. Settings saved by an older version are kept; new settings start at their
 Settings › Update › **Start**. The board starts its own Wi-Fi network and shows its name
 (`FYXIS-xxxx`), a password made up for this session, and an address. On a phone or Mac: join that
 network, open `http://192.168.4.1`, choose the update file and **Upload**: `fyxis-<version>-update.bin` from the
-[Releases page](../../../releases), or `firmware/build/pyxis_bigsix.bin` if you built it yourself. Or from a
+[Releases page](https://github.com/dan-barham/fyxis/releases), or `firmware/build/pyxis_bigsix.bin` if you built it yourself. Or from a
 terminal: `curl --data-binary @fyxis-2.1-update.bin http://192.168.4.1/update`. The board
 writes it to the app slot that isn't running and restarts into it. If the new firmware resets
 within its first 10 s, the bootloader goes back to the old one. Wi-Fi only runs while the Update
