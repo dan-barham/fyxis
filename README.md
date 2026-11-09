@@ -1,36 +1,27 @@
 # FYXIS
 
-**A side display and REC button for the Blackmagic PYXIS 12K.** A 4.3" touchscreen in a printed case
-on the camera's side plate. It shows the settings you check all day (FPS, shutter, EI, white balance
-and tint, timecode, cards and battery) in big type, lets you change them by touch, and adds a real
-REC key with a red tally frame round the screen. It talks to the camera over Bluetooth with
-Blackmagic's own camera-control protocol, and takes power from the camera's USB-C port. Nothing on the
-camera is modified.
+A small touchscreen for the side of the Blackmagic PYXIS 12K. It shows the camera's main settings,
+timecode, card time and battery, lets you change settings by touch, and has a REC button. It connects
+to the camera over Bluetooth (Blackmagic's camera-control protocol) and is powered from the camera's
+USB-C port. Nothing on the camera is modified. I built it for my own camera and I'm sharing it in case
+it's useful to someone else.
 
 ![FYXIS](media/fyxis-hero.jpg)
 
 ![FYXIS in use](media/fyxis-demo.gif)
 
-*The screen above is the real firmware running in the simulator; the case is a render of the printable model.*
+*The screen is the real firmware running in its simulator; the case is a render of the printable model.*
 
 ## What it does
 
-- **The big six at a glance:** FPS (with off-speed), shutter angle and speed, EI, white balance and
-  tint, in type you can read at arm's length.
-- **A timecode you can read across the room**, with both CFexpress cards' remaining time, the sensor
-  area, and a clip timer while rolling.
-- **A real REC button** on the case, with a red frame round the screen while recording. The frame
-  appears the instant you press, dimmed until the camera confirms. Optional "hold to stop" so a knock
-  can't end a take.
-- **Touch editing:** big − / + buttons, quick off-speed chips (30 · 36 · 48 · 50 · 60 · 72 · 96 · 120),
-  angle or 1/x shutter, exact values on a keypad. A slide-to-lock stops accidental changes.
-- **Presets:** six one-tap combinations of FPS, shutter, EI and white balance.
-- **Take log:** each take's number, start timecode and length.
-- **Battery:** the camera's input voltage (or an estimated percentage), time left, warning levels you
-  set, and a two-hour graph.
-- **Night mode:** an all-red palette for dark sets.
-- **Wi-Fi updates:** load new firmware from a phone or computer without taking it off the camera.
-- **Lens info:** f-stop and focal length, if the camera reports them.
+- Shows FPS (including off-speed), shutter angle and speed, EI, white balance and tint.
+- Shows timecode, time left on both cards, and battery voltage with an estimate of time left.
+- Settings can be changed by touch (− / +, off-speed shortcuts, exact values on a keypad), and locked with a slider.
+- A physical REC key on the case; a red border goes round the screen while recording. Optional
+  "hold to stop".
+- Six presets (FPS, shutter, EI, white balance and tint together), a take log, a red night mode, a
+  battery graph, and firmware updates over Wi-Fi.
+- Shows aperture and focal length if the camera reports them.
 
 | | | |
 |---|---|---|
