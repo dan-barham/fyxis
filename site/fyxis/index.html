@@ -3,466 +3,183 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FYXIS :: Open-source side display for the Blackmagic PYXIS 12K :: Dan Barham</title>
-<meta name="description" content="FYXIS is a free, open-source touchscreen side display and REC button for the Blackmagic PYXIS 12K. FPS, shutter, EI, white balance, timecode, cards and battery at a glance, over Bluetooth.">
-<meta property="og:title" content="FYXIS: a side display for the Blackmagic PYXIS 12K">
-<meta property="og:description" content="The big six, timecode and a real REC button on the side of your PYXIS. Free and open source.">
+<title>FYXIS :: a side display for the Blackmagic PYXIS :: Dan Barham</title>
+<meta name="description" content="FYXIS is a free, open-source touchscreen side display and REC button for the Blackmagic PYXIS 12K.">
+<meta property="og:title" content="FYXIS: a side display for the Blackmagic PYXIS">
+<meta property="og:description" content="A free, open-source touchscreen side display and REC button for the PYXIS 12K.">
 <meta property="og:image" content="https://danbarham.com/fyxis/media/fyxis-hero.jpg">
-<meta property="og:type" content="website">
-<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Barlow+Condensed:ital,wght@1,300;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
-/* Matches danbarham.com (theme "Dan Barham" 1.4.8): same tokens, type and section rhythm. */
+/* Header, footer, colours and type follow danbarham.com; the page itself is kept plain. */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; scroll-behavior: smooth; }
+html { font-size: 16px; }
 :root {
   --bg: #060606; --surface: #0E0E0E; --border: #191919; --border2: #282828;
-  --text: #E2D9CF; --muted: #4E4843; --muted2: #6E665E; --acc: #E8400C; --acc2: #FF5A28; --white: #F2EDE6;
-  --display: 'Bebas Neue', Impact, sans-serif; --accent: 'Barlow Condensed', sans-serif; --body: 'Barlow', sans-serif;
-  --ease: cubic-bezier(0.76, 0, 0.24, 1); --eout: cubic-bezier(0.16, 1, 0.3, 1);
+  --text: #E2D9CF; --muted: #4E4843; --muted2: #8A8178; --acc: #E8400C; --acc2: #FF5A28; --white: #F2EDE6;
+  --display: 'Bebas Neue', Impact, sans-serif; --body: 'Barlow', sans-serif;
   --gut: 3.5rem;
 }
-body { background: var(--bg); color: var(--text); font-family: var(--body); font-weight: 300; line-height: 1.6; overflow-x: hidden; }
+body { background: var(--bg); color: var(--text); font-family: var(--body); font-weight: 300; line-height: 1.7; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
-img, video { display: block; max-width: 100%; }
-::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: var(--bg); } ::-webkit-scrollbar-thumb { background: var(--acc); }
-::selection { background: var(--acc); color: var(--bg); }
+img, video { display: block; max-width: 100%; height: auto; }
 
-#grain { position: fixed; inset: -50%; width: 200%; height: 200%; z-index: 500; pointer-events: none; opacity: .08;
+#grain { position: fixed; inset: -50%; width: 200%; height: 200%; z-index: 500; pointer-events: none; opacity: .06;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 200px 200px; animation: gshift .4s steps(1) infinite; }
-@keyframes gshift { 0% { transform: translate(0,0) } 20% { transform: translate(-3%,-4%) } 40% { transform: translate(2%,5%) } 60% { transform: translate(-4%,2%) } 80% { transform: translate(5%,-3%) } 100% { transform: translate(-2%,4%) } }
-@media (prefers-reduced-motion: reduce) { #grain { animation: none; } html { scroll-behavior: auto; } }
+  background-size: 200px 200px; }
 
-/* header */
-#hdr { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 2rem var(--gut); display: flex; align-items: center; justify-content: space-between; transition: padding .4s, background .4s, border-color .4s; border-bottom: 1px solid transparent; }
-#hdr.sc { padding: 1.1rem var(--gut); background: rgba(6,6,6,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom-color: var(--border); }
+header { padding: 2rem var(--gut); display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); }
 .logo { display: flex; flex-direction: column; line-height: 1; gap: 3px; }
 .ln { font-family: var(--display); font-size: 1.6rem; letter-spacing: .12em; color: var(--white); }
 .lr { font-size: .75rem; letter-spacing: .2em; text-transform: uppercase; color: var(--acc); }
-nav { display: flex; align-items: center; gap: 2.5rem; }
-nav a { font-size: .82rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted2); transition: color .2s; position: relative; }
-nav a::after { content: ''; position: absolute; left: 0; bottom: -4px; width: 0; height: 1px; background: var(--acc); transition: width .3s var(--ease); }
-nav a:hover { color: var(--white); } nav a:hover::after { width: 100%; }
-.ncta { font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--acc); border: 1px solid var(--acc); padding: .55rem 1.3rem; transition: background .2s, color .2s; }
-.ncta:hover { background: var(--acc); color: var(--bg); }
-.ncta::after { display: none; }
-.hmb { display: none; flex-direction: column; gap: 6px; background: none; border: none; padding: 8px 4px; cursor: pointer; }
-.hmb span { display: block; width: 22px; height: 1px; background: var(--text); }
-.mnav { display: none; position: fixed; inset: 0; z-index: 98; background: rgba(6,6,6,.97); flex-direction: column; align-items: center; justify-content: center; gap: 2rem; }
-.mnav.open { display: flex; }
-.mnav a { font-family: var(--display); font-size: 3rem; letter-spacing: .1em; color: var(--text); }
-.mnav a:hover { color: var(--acc); }
+nav { display: flex; gap: 2.2rem; flex-wrap: wrap; }
+nav a { font-size: .82rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted2); }
+nav a:hover { color: var(--white); }
 
-/* shared */
-section { padding: 7rem var(--gut); position: relative; z-index: 1; }
-.lt2 { font-size: .78rem; letter-spacing: .22em; text-transform: uppercase; color: var(--acc); display: flex; align-items: center; gap: 1rem; margin-bottom: 1.2rem; }
-.lt2::before { content: ''; display: block; width: 32px; height: 1px; background: var(--acc); flex-shrink: 0; }
-.stitle { font-family: var(--display); font-size: clamp(3rem, 7vw, 7rem); line-height: .9; color: var(--white); letter-spacing: .02em; font-weight: normal; }
-.stitle em { font-family: var(--accent); font-style: italic; font-weight: 300; color: transparent; -webkit-text-stroke: 1px rgba(242,237,230,.35); font-size: .95em; letter-spacing: .04em; }
-.lead { color: var(--muted2); font-size: 1.1rem; line-height: 1.85; max-width: 640px; }
-.lead strong, .body strong { color: var(--text); font-weight: 400; }
-.ba { display: inline-block; font-size: .82rem; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; padding: .85rem 2.2rem; background: var(--acc); color: var(--bg); border: 1px solid var(--acc); transition: background .2s, color .2s, transform .2s; }
-.ba:hover { background: transparent; color: var(--acc); transform: translateY(-2px); }
-.bg2 { display: inline-block; font-size: .82rem; letter-spacing: .14em; text-transform: uppercase; font-weight: 400; padding: .85rem 2.2rem; color: rgba(242,237,230,.6); border: 1px solid rgba(242,237,230,.14); transition: color .2s, border-color .2s, transform .2s; }
-.bg2:hover { color: var(--white); border-color: rgba(242,237,230,.5); transform: translateY(-2px); }
-.btns { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 2.5rem; }
-.js .rv { opacity: 0; transform: translateY(28px); transition: opacity 1s var(--eout), transform 1s var(--eout); }
-.rv.in { opacity: 1; transform: none; }
-@media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; transition: none; } }
+main { max-width: 820px; margin: 0 auto; padding: 5rem var(--gut) 6rem; }
+.kicker { font-size: .78rem; letter-spacing: .22em; text-transform: uppercase; color: var(--acc); }
+h1 { font-family: var(--display); font-weight: normal; font-size: 5rem; line-height: 1; letter-spacing: .04em; color: var(--white); margin: .4rem 0 1.2rem; }
+h2 { font-family: var(--display); font-weight: normal; font-size: 2rem; letter-spacing: .05em; color: var(--white); margin: 3.5rem 0 1rem; }
+p, li { color: var(--text); font-size: 1.05rem; }
+p + p { margin-top: 1rem; }
+.muted { color: var(--muted2); }
+main a { color: var(--white); border-bottom: 1px solid rgba(232,64,12,.6); }
+main a:hover { color: var(--acc2); border-color: var(--acc2); }
+ul, ol { padding-left: 1.3rem; }
+li { margin: .35rem 0; }
+li::marker { color: var(--muted2); }
+figure { margin: 2.5rem 0; }
+figure.wide { margin-left: -4rem; margin-right: -4rem; }
+figcaption { color: var(--muted2); font-size: .85rem; margin-top: .7rem; }
+.screen { border: 1px solid var(--border2); background: #000; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin: 1.5rem 0; }
+.grid figure { margin: 0; }
+.links { margin-top: 1.6rem; display: flex; gap: 1.6rem; flex-wrap: wrap; font-size: .95rem; }
+.note { border-left: 2px solid var(--acc); padding: .2rem 0 .2rem 1.1rem; margin: 1.5rem 0; }
+.tablewrap { overflow-x: auto; margin: 1.2rem 0; }
+table { width: 100%; border-collapse: collapse; font-size: .97rem; }
+th { text-align: left; font-weight: 400; font-size: .72rem; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: .6rem .8rem .6rem 0; border-bottom: 1px solid var(--border2); }
+td { padding: .75rem .8rem .75rem 0; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text); }
+td:first-child { white-space: nowrap; color: var(--muted2); width: 4.5rem; }
+td:nth-child(2) { color: var(--white); font-weight: 400; }
+td:last-child { color: var(--muted2); }
+@media (max-width: 700px) { td, th { font-size: .9rem; } td:last-child { min-width: 11rem; } }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; color: var(--white); }
 
-/* hero */
-.page-hero { padding: 12rem var(--gut) 5rem; background: var(--surface); border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3rem; align-items: center; overflow: hidden; }
-.page-hero h1 { font-family: var(--display); font-size: clamp(5rem, 13vw, 12rem); line-height: .82; color: var(--white); letter-spacing: .04em; font-weight: normal; }
-.page-hero h1 em { display: block; font-family: var(--accent); font-style: italic; font-weight: 300; color: transparent; -webkit-text-stroke: 1px rgba(232,64,12,.7); font-size: .42em; letter-spacing: .05em; line-height: 1.05; margin-top: .4rem; }
-.hero-img { position: relative; margin-right: calc(-1 * var(--gut)); }
-.hero-img img { width: 100%; height: auto; mix-blend-mode: lighten; }
-.hero-img::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 60% 45%, transparent 45%, var(--surface) 78%); pointer-events: none; }
-.tags { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 2rem; }
-.tag { font-size: .72rem; letter-spacing: .18em; text-transform: uppercase; color: var(--muted2); border: 1px solid var(--border2); padding: .4rem .9rem; }
+footer { padding: 2rem var(--gut); border-top: 1px solid var(--border); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; font-size: .78rem; letter-spacing: .1em; color: var(--muted); }
+footer a:hover { color: var(--acc); }
 
-/* stats strip */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); position: relative; z-index: 1; }
-.stat { padding: 2.6rem var(--gut); border-right: 1px solid var(--border); }
-.stat:last-child { border-right: 0; }
-.sv { font-family: var(--display); font-size: clamp(2.6rem, 4.5vw, 4rem); line-height: 1; color: var(--white); letter-spacing: .02em; }
-.sv small { font-family: var(--accent); font-style: italic; font-size: .45em; color: var(--acc); letter-spacing: .06em; margin-left: .2em; }
-.sl { font-size: .72rem; letter-spacing: .2em; text-transform: uppercase; color: var(--muted2); margin-top: .7rem; }
-
-/* demo */
-#demo { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4rem; align-items: center; }
-.device { background: #111; border: 1px solid var(--border2); border-radius: 22px; padding: 18px; box-shadow: 0 40px 80px -30px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.04); }
-.device video, .device img { width: 100%; height: auto; border-radius: 6px; background: #000; aspect-ratio: 848 / 480; }
-.cap { font-size: .78rem; color: var(--muted); letter-spacing: .06em; margin-top: 1rem; }
-.chap { list-style: none; margin-top: 2rem; border-top: 1px solid var(--border); }
-.chap li { padding: .85rem 0; border-bottom: 1px solid var(--border); display: flex; gap: 1.2rem; font-size: .95rem; color: var(--muted2); }
-.chap b { font-family: var(--display); font-weight: normal; font-size: 1.1rem; letter-spacing: .08em; color: var(--acc); min-width: 2.2rem; }
-
-/* features */
-#features { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.fhead { display: flex; justify-content: space-between; align-items: flex-end; gap: 2rem; flex-wrap: wrap; margin-bottom: 4rem; }
-.fgrid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border2); border-left: 1px solid var(--border2); }
-.feat { padding: 2.4rem 2.2rem 2.6rem; border-right: 1px solid var(--border2); border-bottom: 1px solid var(--border2); position: relative; transition: background .3s; }
-.feat:hover { background: rgba(232,64,12,.035); }
-.feat::before { content: ''; position: absolute; left: 0; top: 0; height: 1px; width: 0; background: var(--acc); transition: width .5s var(--ease); }
-.feat:hover::before { width: 100%; }
-.fn { font-family: var(--accent); font-style: italic; font-size: .9rem; color: var(--acc); letter-spacing: .1em; }
-.ft { font-family: var(--display); font-size: 1.9rem; letter-spacing: .04em; color: var(--white); line-height: 1; margin: .7rem 0 .9rem; font-weight: normal; }
-.fd { color: var(--muted2); font-size: .98rem; line-height: 1.75; }
-
-/* screens */
-.tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 3rem 0 2rem; }
-.tab { font-family: var(--body); font-size: .78rem; letter-spacing: .16em; text-transform: uppercase; color: var(--muted2); background: none; border: 1px solid var(--border2); padding: .6rem 1.1rem; cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
-.tab:hover { color: var(--white); border-color: rgba(242,237,230,.4); }
-.tab[aria-selected="true"] { color: var(--bg); background: var(--acc); border-color: var(--acc); }
-.viewer { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: 3.5rem; align-items: center; }
-.vtext h3 { font-family: var(--display); font-weight: normal; font-size: 2.6rem; letter-spacing: .03em; color: var(--white); line-height: 1; margin-bottom: 1rem; }
-.vtext p { color: var(--muted2); font-size: 1rem; line-height: 1.8; }
-
-/* build */
-#build { border-top: 1px solid var(--border); }
-.bgrid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 5rem; margin-top: 4rem; }
-.parts { list-style: none; border-top: 1px solid var(--border); }
-.parts li { padding: 1.1rem 0; border-bottom: 1px solid var(--border); }
-.pk { font-size: .72rem; letter-spacing: .2em; text-transform: uppercase; color: var(--acc); }
-.pv { font-family: var(--display); font-size: 1.35rem; letter-spacing: .04em; color: var(--white); margin-top: .15rem; }
-.pd { color: var(--muted2); font-size: .92rem; line-height: 1.6; margin-top: .2rem; }
-.steps { list-style: none; counter-reset: s; }
-.steps li { counter-increment: s; display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); gap: 1rem; padding: 1.6rem 0; border-bottom: 1px solid var(--border); }
-.steps li:first-child { border-top: 1px solid var(--border); }
-.steps li::before { content: counter(s, decimal-leading-zero); font-family: var(--display); font-size: 2.6rem; line-height: .9; color: transparent; -webkit-text-stroke: 1px rgba(232,64,12,.8); }
-.steps h4 { font-family: var(--display); font-weight: normal; font-size: 1.6rem; letter-spacing: .04em; color: var(--white); line-height: 1; margin-bottom: .5rem; }
-.steps p { color: var(--muted2); font-size: .98rem; line-height: 1.75; }
-.steps a, .body a, .faq a { color: var(--text); border-bottom: 1px solid rgba(232,64,12,.6); transition: color .2s, border-color .2s; }
-.steps a:hover, .body a:hover, .faq a:hover { color: var(--acc2); border-color: var(--acc2); }
-.warn { margin-top: 2.5rem; border: 1px solid rgba(232,64,12,.45); background: rgba(232,64,12,.06); padding: 1.3rem 1.5rem; color: var(--text); font-size: .95rem; line-height: 1.7; }
-.warn b { color: var(--acc2); font-weight: 500; letter-spacing: .04em; }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86em; color: var(--white); background: rgba(242,237,230,.06); padding: .1em .4em; }
-
-/* case */
-#case { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 4rem; align-items: center; }
-#case .shot img { width: 100%; height: auto; mix-blend-mode: lighten; }
-.specs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2rem; margin-top: 2.2rem; border-top: 1px solid var(--border); }
-.spec { padding: 1rem 0; border-bottom: 1px solid var(--border); }
-.spec .pv { font-size: 1.25rem; }
-
-/* tech */
-.tgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 5rem; margin-top: 3.5rem; }
-.titem { padding: 1.8rem 0; border-top: 1px solid var(--border); }
-.titem h4 { font-family: var(--display); font-weight: normal; font-size: 1.5rem; letter-spacing: .05em; color: var(--white); margin-bottom: .6rem; }
-.titem p { color: var(--muted2); font-size: .97rem; line-height: 1.8; }
-
-/* faq */
-#faq { border-top: 1px solid var(--border); }
-.faq { margin-top: 3rem; border-top: 1px solid var(--border); max-width: 980px; }
-.faq details { border-bottom: 1px solid var(--border); }
-.faq summary { list-style: none; cursor: pointer; padding: 1.5rem 3rem 1.5rem 0; font-family: var(--display); font-size: 1.55rem; letter-spacing: .04em; color: var(--white); position: relative; transition: color .2s; }
-.faq summary::-webkit-details-marker { display: none; }
-.faq summary::after { content: '+'; position: absolute; right: .3rem; top: 50%; transform: translateY(-50%); font-family: var(--body); font-weight: 300; font-size: 1.6rem; color: var(--acc); transition: transform .3s var(--ease); }
-.faq details[open] summary::after { transform: translateY(-50%) rotate(45deg); }
-.faq summary:hover { color: var(--acc2); }
-.faq .ans { color: var(--muted2); font-size: 1rem; line-height: 1.85; padding: 0 0 1.6rem; max-width: 760px; }
-
-/* get it */
-#get { background: var(--bg); border-top: 1px solid var(--border); }
-.ctop { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: end; }
-.ch2 { font-family: var(--display); font-size: clamp(3.5rem, 8vw, 9rem); line-height: .88; color: var(--white); letter-spacing: .01em; font-weight: normal; }
-.ch2 em { font-family: var(--accent); font-style: italic; font-size: .95em; font-weight: 300; color: transparent; -webkit-text-stroke: 1px rgba(232,64,12,.6); letter-spacing: .04em; }
-.cil { border-top: 1px solid var(--border); }
-.ci { padding: 1.2rem 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.cil2 { font-size: .75rem; letter-spacing: .2em; text-transform: uppercase; color: var(--acc); }
-.civ { font-family: var(--display); font-size: 1.4rem; letter-spacing: .04em; color: var(--white); transition: color .2s; }
-a.ci:hover .civ { color: var(--acc2); }
-.civ::after { content: ' \2192'; font-family: var(--body); font-weight: 300; }
-.lic { margin-top: 4rem; color: var(--muted); font-size: .85rem; line-height: 1.8; max-width: 900px; }
-
-footer { padding: 2rem var(--gut); border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; position: relative; z-index: 1; }
-.fc { font-size: .78rem; letter-spacing: .1em; color: var(--muted); }
-.fc strong { font-family: var(--display); font-size: .95rem; letter-spacing: .1em; color: var(--text); font-weight: normal; }
-.frc { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
-.frc a:hover { color: var(--acc); }
-
-@media (max-width: 1100px) {
-  :root { --gut: 2.2rem; }
-  .page-hero { grid-template-columns: 1fr; padding-top: 10rem; }
-  .hero-img { margin: 0 calc(-1 * var(--gut)); }
-  #demo, .viewer, .bgrid, #case, .ctop { grid-template-columns: 1fr; gap: 3rem; }
-  .fgrid { grid-template-columns: repeat(2, 1fr); }
-  .stats { grid-template-columns: repeat(2, 1fr); }
-  .stat:nth-child(2) { border-right: 0; } .stat:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
-  #case .shot { order: 2; }
-}
-@media (max-width: 800px) {
+@media (max-width: 1000px) { figure.wide { margin-left: 0; margin-right: 0; } }
+@media (max-width: 700px) {
   :root { --gut: 1.25rem; }
-  nav { display: none; } .hmb { display: flex; }
-  #hdr, #hdr.sc { padding: 1rem var(--gut); }
-  section { padding: 4.5rem var(--gut); }
-  .page-hero { padding: 8rem var(--gut) 3.5rem; }
-  .fgrid { grid-template-columns: 1fr; }
-  .tgrid, .specs { grid-template-columns: 1fr; }
-  .stat { padding: 1.8rem var(--gut); }
-  .feat { padding: 2rem 1.4rem; }
-  .steps li { grid-template-columns: 3rem minmax(0, 1fr); }
-  .steps li::before { font-size: 2rem; }
-  .device { padding: 10px; border-radius: 14px; }
-  .faq summary { font-size: 1.3rem; }
+  header { padding: 1.2rem var(--gut); }
+  nav { display: none; }
+  main { padding-top: 3rem; }
+  h1 { font-size: 3.6rem; }
+  .grid { grid-template-columns: 1fr; }
 }
 </style>
 </head>
 <body>
-<script>document.documentElement.classList.add('js');</script>
 <div id="grain" aria-hidden="true"></div>
 
-<header id="hdr">
+<header>
   <a class="logo" href="https://danbarham.com/"><span class="ln">DAN BARHAM</span><span class="lr">Director of Photography</span></a>
   <nav aria-label="Site">
     <a href="https://danbarham.com/#reels">Reels</a>
     <a href="https://danbarham.com/#work">Work</a>
     <a href="https://danbarham.com/#about">About</a>
     <a href="https://danbarham.com/#contact">Contact</a>
-    <a class="ncta" href="https://danbarham.com/#contact">Hire Dan</a>
   </nav>
-  <button class="hmb" aria-label="Menu" aria-expanded="false" aria-controls="mnav"><span></span><span></span><span></span></button>
 </header>
-<div class="mnav" id="mnav">
-  <a href="https://danbarham.com/#reels">Reels</a><a href="https://danbarham.com/#work">Work</a>
-  <a href="https://danbarham.com/#about">About</a><a href="https://danbarham.com/#contact">Contact</a>
-  <a href="#get">FYXIS on GitHub</a>
-</div>
 
 <main>
-<section class="page-hero">
-  <div class="rv">
-    <div class="lt2">Open-source camera tool</div>
-    <h1>FYXIS<em>for the PYXIS 12K</em></h1>
-    <p class="lead" style="margin-top:2rem">A touchscreen side display and a real <strong>REC button</strong> for the Blackmagic
-      PYXIS. FPS, shutter, EI, white balance, timecode, cards and battery in big type, on the side of the
-      camera, over Bluetooth. Free to build, free to use.</p>
-    <div class="btns">
-      <a class="ba" href="https://github.com/dan-barham/fyxis">Get it on GitHub</a>
-      <a class="bg2" href="#demo">Watch the demo</a>
-    </div>
-    <div class="tags"><span class="tag">ESP32-S3</span><span class="tag">Bluetooth LE</span><span class="tag">3D printed</span><span class="tag">MIT &amp; CC BY</span></div>
+  <div class="kicker">Side project</div>
+  <h1>FYXIS</h1>
+  <p>A small touchscreen for the side of the Blackmagic PYXIS 12K. It shows the camera's main settings,
+    timecode, card time and battery, lets you change settings by touch, and has a REC button. It connects
+    to the camera over Bluetooth and is powered from the camera's USB-C port. I built it for my own camera
+    and I'm sharing it in case it's useful to anyone else. It's free and open source.</p>
+  <div class="links">
+    <a href="https://github.com/dan-barham/fyxis">Code and docs on GitHub</a>
+    <a href="https://github.com/dan-barham/fyxis/releases/latest">Firmware download</a>
   </div>
-  <div class="hero-img rv"><img src="media/fyxis-hero.jpg" width="1600" height="960" alt="The FYXIS side display in its printed case, showing FPS 23.98, shutter 180°, EI 800, 5600K and running timecode, with a red REC key above the screen."></div>
-</section>
 
-<div class="stats" aria-label="At a glance">
-  <div class="stat rv"><div class="sv">6<small>settings</small></div><div class="sl">at a glance, readable at arm's length</div></div>
-  <div class="stat rv"><div class="sv">15<small>ms</small></div><div class="sl">Bluetooth link to the camera</div></div>
-  <div class="stat rv"><div class="sv">20<small>ms</small></div><div class="sl">per screen update</div></div>
-  <div class="stat rv"><div class="sv">0<small>mods</small></div><div class="sl">to the camera. Unplug and it's stock</div></div>
-</div>
+  <figure class="wide">
+    <img src="media/fyxis-hero.jpg" width="1600" height="960" alt="The FYXIS display in its printed case, with a red REC key above the screen.">
+    <figcaption>A render of the printed case with the real interface on its screen.</figcaption>
+  </figure>
 
-<section id="demo">
-  <div class="rv">
-    <div class="lt2">The demo</div>
-    <h2 class="stitle">See it<br><em>Run</em></h2>
-    <p class="lead" style="margin-top:1.8rem">Twenty seconds with the real firmware: rolling a take, an off-speed change, saving a preset, and switching to night mode.</p>
-    <ol class="chap">
-      <li><b>00</b>Timecode running, lens and cards underneath</li>
-      <li><b>02</b>REC: red frame, clip timer, take number</li>
-      <li><b>07</b>Tap FPS, pick 48 for off-speed</li>
-      <li><b>11</b>Hold a preset card to save the look</li>
-      <li><b>15</b>Settings, then night mode for dark sets</li>
-    </ol>
-  </div>
-  <div class="rv">
-    <div class="device">
-      <video src="media/fyxis-demo.mp4" poster="media/fyxis-demo-poster.jpg" autoplay muted loop playsinline preload="metadata" aria-label="Demo of the FYXIS screen"></video>
-    </div>
-    <p class="cap">The firmware running in its desktop simulator with a simulated camera. White dots show touches.</p>
-  </div>
-</section>
+  <h2>What it does</h2>
+  <ul>
+    <li>Shows FPS (including off-speed), shutter angle and speed, EI, white balance and tint in large type.</li>
+    <li>Shows timecode, time left on both cards, and battery voltage with an estimate of time left.</li>
+    <li>Settings can be changed by touch, and locked with a slider.</li>
+    <li>A physical REC key on the case. A red border goes round the screen while recording.</li>
+    <li>Six presets, a take log, a night mode in red, and firmware updates over Wi-Fi.</li>
+  </ul>
 
-<section id="features">
-  <div class="fhead rv">
-    <div>
-      <div class="lt2">What it does</div>
-      <h2 class="stitle">Built for<br><em>The Operator</em></h2>
-    </div>
-    <p class="lead" style="max-width:460px">The PYXIS is a box. The settings you check every take live on a small screen at the back. FYXIS puts them where your eye already is.</p>
-  </div>
-  <div class="fgrid">
-    <div class="feat rv"><div class="fn">01</div><h3 class="ft">The big six, big</h3><p class="fd">FPS with off-speed in amber, shutter angle and its 1/x speed, EI, white balance and tint. Grey when the link drops, so a stale value never looks live.</p></div>
-    <div class="feat rv"><div class="fn">02</div><h3 class="ft">A real REC key</h3><p class="fd">A tactile key on the case and a red frame round the screen. The frame appears the instant you press, before the camera answers. Optional hold-to-stop.</p></div>
-    <div class="feat rv"><div class="fn">03</div><h3 class="ft">Timecode you can read</h3><p class="fd">64-pixel timecode with both CFexpress cards' time left, the sensor area, a clip timer while rolling and the last take's length after.</p></div>
-    <div class="feat rv"><div class="fn">04</div><h3 class="ft">Change it by touch</h3><p class="fd">Big − / + buttons, off-speed chips from 30 to 120, shutter by angle or speed, exact values on a keypad. Slide to lock before you hand the camera over.</p></div>
-    <div class="feat rv"><div class="fn">05</div><h3 class="ft">Presets</h3><p class="fd">Six one-tap looks: frame rate, shutter, EI, white balance and tint together. Hold a card to save what the camera is set to now.</p></div>
-    <div class="feat rv"><div class="fn">06</div><h3 class="ft">Take log</h3><p class="fd">Every take's number, start timecode and length, newest first. Handy when the script supervisor asks how long that last one was.</p></div>
-    <div class="feat rv"><div class="fn">07</div><h3 class="ft">Battery that warns you</h3><p class="fd">Volts or percent from the camera's input, time left from how fast it's falling, amber and red levels you set, and a two-hour graph.</p></div>
-    <div class="feat rv"><div class="fn">08</div><h3 class="ft">Night mode</h3><p class="fd">Everything in dim red on black, for dark sets and adapted eyes. The record frame stays full red.</p></div>
-    <div class="feat rv"><div class="fn">09</div><h3 class="ft">Updates over Wi-Fi</h3><p class="fd">New firmware from a phone or laptop with the display still on the camera. If an update doesn't start properly, it rolls back by itself.</p></div>
-  </div>
-</section>
+  <figure>
+    <video class="screen" src="media/fyxis-demo.mp4" poster="media/fyxis-demo-poster.jpg" controls muted loop playsinline preload="metadata"></video>
+    <figcaption>The firmware running in its desktop simulator: recording a take, changing frame rate, saving a preset, night mode.</figcaption>
+  </figure>
 
-<section id="screens">
-  <div class="rv">
-    <div class="lt2">On screen</div>
-    <h2 class="stitle">Every<br><em>Screen</em></h2>
+  <div class="grid">
+    <figure><img class="screen" src="media/screen-main.png" width="848" height="480" loading="lazy" alt="Main screen"><figcaption>Main screen</figcaption></figure>
+    <figure><img class="screen" src="media/screen-recording.png" width="848" height="480" loading="lazy" alt="Recording, with a red border"><figcaption>Recording</figcaption></figure>
+    <figure><img class="screen" src="media/screen-presets.png" width="848" height="480" loading="lazy" alt="Presets screen"><figcaption>Presets</figcaption></figure>
+    <figure><img class="screen" src="media/screen-night.png" width="848" height="480" loading="lazy" alt="Night mode in red"><figcaption>Night mode</figcaption></figure>
   </div>
-  <div class="tabs rv" role="tablist" aria-label="Screens"></div>
-  <div class="viewer rv">
-    <div class="device"><img id="vimg" src="media/screen-main.png" width="848" height="480" alt=""></div>
-    <div class="vtext" aria-live="polite"><h3 id="vtitle"></h3><p id="vdesc"></p></div>
-  </div>
-</section>
 
-<section id="build">
-  <div class="rv">
-    <div class="lt2">Build one</div>
-    <h2 class="stitle">An afternoon<br><em>And a printer</em></h2>
-    <p class="lead" style="margin-top:1.8rem">One off-the-shelf board, one cable, one key switch and a printed case. No soldering inside the camera, no tools to install for flashing.</p>
+  <h2>Parts to buy</h2>
+  <p class="muted">Everything for one unit. Nothing on the camera is modified.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Qty</th><th>Part</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Waveshare ESP32-S3-Touch-LCD-4.3</td><td>The 800 × 480 version, not the 4.3B. From Waveshare or Amazon.</td></tr>
+      <tr><td>1</td><td>USB-C to USB-C cable, right-angle</td><td>15–30 cm, with a 90° plug at least at the board end. It only carries power.</td></tr>
+      <tr><td>1</td><td>Kailh Choc V2 key switch (PG1353)</td><td>Brown (tactile). The printed key fits its cross stem.</td></tr>
+      <tr><td>1</td><td>1 kΩ resistor</td><td>Any 1/4 W through-hole resistor.</td></tr>
+      <tr><td>2</td><td>Lengths of thin hook-up wire</td><td>About 10 cm each, 26–28 AWG, plus a little heat-shrink.</td></tr>
+      <tr><td>2</td><td>1/4"-20 button-head screws, 3/8" long</td><td>Into the PYXIS side plate.</td></tr>
+      <tr><td>4</td><td>M2 × 5 mm button-head screws</td><td>Self-tapping into the case.</td></tr>
+      <tr><td>~30 cm</td><td>1 mm foam tape</td><td>Single-sided, about 5 mm wide, for the edge of the glass.</td></tr>
+      <tr><td>~60 g</td><td>PETG or ASA filament</td><td>Black, plus a little white and red if your printer does multi-colour.</td></tr>
+    </tbody>
+  </table>
   </div>
-  <div class="bgrid">
-    <div class="rv">
-      <ul class="parts">
-        <li><div class="pk">Display</div><div class="pv">Waveshare ESP32-S3-Touch-LCD-4.3</div><div class="pd">800 × 480 capacitive touchscreen with an ESP32-S3, Bluetooth and Wi-Fi built in.</div></li>
-        <li><div class="pk">Power</div><div class="pv">Right-angle USB-C cable</div><div class="pd">From the camera's rear USB-C to the board. Power only; settings go over Bluetooth.</div></li>
-        <li><div class="pk">REC key</div><div class="pv">Kailh Choc V2 switch + resistor</div><div class="pd">Two wires to the board's sensor header. The keycap is printed.</div></li>
-        <li><div class="pk">Case</div><div class="pv">Printed in PETG or ASA</div><div class="pd">Two parts plus the key, multi-colour inlays optional. Two 1/4"-20 button heads into the side plate, four M2 screws.</div></li>
-      </ul>
-    </div>
-    <div class="rv">
-      <ol class="steps">
-        <li><div><h4>Flash the firmware</h4><p>Download the latest <code>fyxis-…-full.bin</code> from <a href="https://github.com/dan-barham/fyxis/releases">Releases</a> and write it with Espressif's web flasher in Chrome. <a href="https://github.com/dan-barham/fyxis/blob/main/docs/building.md#flashing-no-tools-needed">Step by step</a>.</p></div></li>
-        <li><div><h4>Print the case</h4><p>Ready-to-slice 3MF files with the colour inlays already assigned, or edit the OpenSCAD model. <a href="https://github.com/dan-barham/fyxis/tree/main/enclosure">Enclosure files</a>.</p></div></li>
-        <li><div><h4>Wire the REC key</h4><p>Switch and a 1 kΩ resistor between the header's AD pin and ground. <a href="https://github.com/dan-barham/fyxis/blob/main/docs/hardware.md#physical-rec-button">Wiring</a>.</p></div></li>
-        <li><div><h4>Mount it</h4><p>Two 1/4"-20 screws into the PYXIS side plate, locating boss in the plate's pocket. USB-C to the camera's rear port.</p></div></li>
-        <li><div><h4>Pair once</h4><p>Turn on Bluetooth in the camera's Setup menu and type the 6-digit PIN it shows. From then on it reconnects by itself.</p></div></li>
-      </ol>
-      <div class="warn"><b>One rule:</b> never connect a computer and the camera to the board at the same time. Flash with the camera cable unplugged; plug the camera in after the computer is disconnected.</div>
-    </div>
-  </div>
-</section>
+  <p class="muted">You'll also need a 3D printer, a soldering iron, hex keys (5/32" and 1.3 mm), and a
+    USB-C cable to connect the board to a computer once for flashing.</p>
 
-<section id="case">
-  <div class="shot rv"><img src="media/fyxis-angle-rec.jpg" width="1600" height="960" loading="lazy" alt="The FYXIS case from the front, recording: a red frame round the screen and the REC key in its recessed well."></div>
-  <div class="rv">
-    <div class="lt2">The case</div>
-    <h2 class="stitle">Made to<br><em>Disappear</em></h2>
-    <p class="lead" style="margin-top:1.8rem">A slim two-part case that bolts into the side plate's own 1/4"-20 holes, with a boss that drops into the plate's pocket so it can't twist. The REC key sits in a recessed well with a red ring, a little below the face, so you find it by feel and don't knock it.</p>
-    <div class="specs">
-      <div class="spec"><div class="pk">Size</div><div class="pv">114 × 82 mm</div></div>
-      <div class="spec"><div class="pk">Depth</div><div class="pv">17.6 mm off the plate</div></div>
-      <div class="spec"><div class="pk">Mount</div><div class="pv">2 × 1/4"-20, slotted</div></div>
-      <div class="spec"><div class="pk">Material</div><div class="pv">PETG or ASA</div></div>
-    </div>
-  </div>
-</section>
+  <h2>Making one</h2>
+  <ol>
+    <li>Flash the firmware from your browser: <a href="https://github.com/dan-barham/fyxis/blob/main/docs/building.md#flashing-no-tools-needed">instructions</a>.</li>
+    <li>Print the case: <a href="https://github.com/dan-barham/fyxis/tree/main/enclosure">files and print settings</a>.</li>
+    <li>Wire the REC key to the board: <a href="https://github.com/dan-barham/fyxis/blob/main/docs/hardware.md#physical-rec-button">wiring</a>.</li>
+    <li>Screw it to the PYXIS side plate and plug it into the camera's rear USB-C port.</li>
+    <li>Turn on Bluetooth in the camera's Setup menu and enter the PIN the camera shows.</li>
+  </ol>
+  <p class="note">Don't connect a computer and the camera to the board at the same time. Flash it with the
+    camera cable unplugged.</p>
+  <p>The <a href="https://github.com/dan-barham/fyxis/blob/main/docs/user-guide.md">user guide</a> covers
+    everything on the screen and in the settings.</p>
 
-<section id="tech">
-  <div class="rv">
-    <div class="lt2">Under the hood</div>
-    <h2 class="stitle">How it<br><em>Works</em></h2>
-  </div>
-  <div class="tgrid">
-    <div class="titem rv"><h4>Blackmagic's own protocol</h4><p>The PYXIS publishes its settings over Bluetooth LE using the same camera-control protocol as its SDI control. FYXIS pairs once with the camera's PIN, subscribes to settings and timecode, and writes changes back the same way the Blackmagic Camera app does.</p></div>
-    <div class="titem rv"><h4>Fast where it matters</h4><p>Only what changes is redrawn, so a timecode tick touches two digits, not the screen. The link runs at a 15 ms connection interval and the REC key is interrupt-driven, so the frame appears as you press.</p></div>
-    <div class="titem rv"><h4>Why not USB?</h4><p>It was tested: on that cable the PYXIS is always the USB host, and only talks to a host that also powers it. So the cable carries power and the data goes over Bluetooth. Nothing in the camera is changed.</p></div>
-    <div class="titem rv"><h4>Hackable</h4><p>ESP-IDF and LVGL in plain C, with a desktop simulator that runs the same UI and protocol code against a real camera or a demo. The case is a parametric OpenSCAD model. Everything is on GitHub.</p></div>
-  </div>
-</section>
-
-<section id="faq">
-  <div class="rv">
-    <div class="lt2">Good to know</div>
-    <h2 class="stitle">Questions<br><em>Answered</em></h2>
-  </div>
-  <div class="faq rv">
-    <details><summary>Does it work with other Blackmagic cameras?</summary><div class="ans">It's built and tested on the PYXIS 12K. The Pocket and URSA cameras use the same Bluetooth camera control, so most of it will probably work, but the case is made for the PYXIS side plate and the other bodies haven't been tried. Reports welcome on GitHub.</div></details>
-    <details><summary>Can I still use the Blackmagic Camera app?</summary><div class="ans">The camera most likely accepts one Bluetooth controller at a time, so while FYXIS is connected an iPad or phone app probably can't connect. Unplug FYXIS to hand control to the app.</div></details>
-    <details><summary>What happens if the Bluetooth link drops?</summary><div class="ans">The last values stay on screen in grey, the line under the timecode says RECONNECTING in amber, the record frame is held back, and it reconnects by itself, without the PIN. A stale value never looks live.</div></details>
-    <details><summary>Can the screen be dimmed?</summary><div class="ans">This panel's backlight is on or off only. The interface is mostly black to keep spill down, and night mode switches everything to dim red. For very dark sets, a strip of ND gel or a small hood works.</div></details>
-    <details><summary>Does it show the lens?</summary><div class="ans">If the camera reports aperture and focal length (an electronic lens), FYXIS shows them under the timecode and names the lens in Settings. Whether the PYXIS sends lens data over Bluetooth hasn't been confirmed yet.</div></details>
-    <details><summary>Is it affiliated with Blackmagic Design?</summary><div class="ans">No. FYXIS is an independent, open-source project. PYXIS is a trademark of Blackmagic Design. It uses the camera-control protocol Blackmagic documents for developers. Build and use it at your own risk.</div></details>
-  </div>
-</section>
-
-<section id="get">
-  <div class="ctop">
-    <div class="rv">
-      <div class="lt2">Free and open source</div>
-      <h2 class="ch2">Build<br>Your<br><em>Own</em></h2>
-      <p class="lead" style="margin-top:1.8rem">Firmware, case, docs and the simulator are all on GitHub. Take it, change it, make it better. If you build one, I'd love to see it on your rig.</p>
-    </div>
-    <div class="rv">
-      <div class="cil">
-        <a class="ci" href="https://github.com/dan-barham/fyxis"><span class="cil2">Source &amp; docs</span><span class="civ">GitHub</span></a>
-        <a class="ci" href="https://github.com/dan-barham/fyxis/releases/latest"><span class="cil2">Firmware</span><span class="civ">Download</span></a>
-        <a class="ci" href="https://github.com/dan-barham/fyxis/tree/main/enclosure"><span class="cil2">3D print files</span><span class="civ">Enclosure</span></a>
-        <a class="ci" href="https://github.com/dan-barham/fyxis/blob/main/docs/user-guide.md"><span class="cil2">How to use it</span><span class="civ">User guide</span></a>
-        <a class="ci" href="https://github.com/dan-barham/fyxis/issues"><span class="cil2">Bugs &amp; ideas</span><span class="civ">Issues</span></a>
-      </div>
-    </div>
-  </div>
-  <p class="lic rv">Firmware and tools MIT licence; case design, docs and media CC BY 4.0. Interface set in Inter (SIL OFL) with Tabler Icons (MIT). FYXIS isn't affiliated with or endorsed by Blackmagic Design; PYXIS is a trademark of Blackmagic Design Pty. Ltd. The screens on this page are the real firmware running in its simulator; the case images are renders of the printable model.</p>
-</section>
+  <h2>Notes</h2>
+  <p>I've only used it on the PYXIS 12K. Other Blackmagic cameras with Bluetooth control may work, but the
+    case is made for the PYXIS side plate. While it's connected, the Blackmagic Camera app probably can't
+    connect at the same time.</p>
+  <p>The firmware is MIT licensed and the case design and docs are CC BY 4.0, so you're welcome to change
+    it, improve it, or make your own. Bug reports and improvements are welcome on
+    <a href="https://github.com/dan-barham/fyxis/issues">GitHub</a>.</p>
+  <p class="muted">FYXIS isn't affiliated with Blackmagic Design. PYXIS is a trademark of Blackmagic
+    Design Pty. Ltd. Use it at your own risk.</p>
 </main>
 
 <footer>
-  <div class="fc"><strong>DAN BARHAM</strong> &nbsp;·&nbsp; Director of Photography &nbsp;·&nbsp; Vancouver, BC</div>
-  <div class="frc"><a href="https://danbarham.com/">danbarham.com</a> &nbsp;/&nbsp; <a href="https://github.com/dan-barham/fyxis">FYXIS on GitHub</a></div>
+  <div>DAN BARHAM · Director of Photography · Vancouver, BC</div>
+  <div><a href="https://danbarham.com/">danbarham.com</a></div>
 </footer>
-
-<script>
-(() => {
-  // header background once scrolled (as on danbarham.com)
-  const hdr = document.getElementById('hdr');
-  const onScroll = () => hdr.classList.toggle('sc', window.scrollY > 40);
-  onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
-
-  // mobile menu
-  const hmb = document.querySelector('.hmb'), mnav = document.getElementById('mnav');
-  hmb.addEventListener('click', () => { const o = mnav.classList.toggle('open'); hmb.setAttribute('aria-expanded', o); });
-  mnav.addEventListener('click', e => { if (e.target.tagName === 'A') { mnav.classList.remove('open'); hmb.setAttribute('aria-expanded', false); } });
-
-  // reveal on scroll: anything already on screen shows at once; the rest fades in as it arrives
-  const rvs = [...document.querySelectorAll('.rv')];
-  const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(e => {
-    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-  }), { threshold: 0, rootMargin: '0px 0px -8% 0px' }) : null;
-  rvs.forEach(el => {
-    if (!io || el.getBoundingClientRect().top < innerHeight) el.classList.add('in');
-    else io.observe(el);
-  });
-  setTimeout(() => rvs.forEach(el => el.classList.add('in')), 4000);   // never leave anything hidden
-
-  // screens viewer
-  const SCREENS = [
-    ['main', 'Main', 'At a glance', 'FPS, shutter, EI and white balance with tint across the top. Timecode two columns wide, with the lens (or sensor area) and both cards underneath. Slide to lock, and the battery strip that opens Settings.'],
-    ['recording', 'Recording', 'Rolling', 'A red frame round the whole screen, so nothing moves. The line under the timecode shows the clip timer and take number, and the slot being recorded to turns red.'],
-    ['editor', 'Editor', 'Change it by touch', 'Tap a tile for a full-screen editor with huge − / + buttons. Shutter works by angle or by 1/x speed; Custom opens a keypad for exact values.'],
-    ['presets', 'Presets', 'One-tap looks', 'Six cards. Hold one to save what the camera is set to now; tap it later to put it all back. The card that matches the camera is outlined.'],
-    ['takes', 'Takes', 'Take log', 'Every take this session: number, start timecode, length, and the total recorded.'],
-    ['battery', 'Battery', 'Know when to swap', 'Warning levels you set, volts or percent, and the last two hours of voltage with the levels drawn in.'],
-    ['night', 'Night', 'Night mode', 'Everything in dim red, for dark sets. The record frame stays full red.'],
-    ['update', 'Update', 'Wi-Fi updates', 'Start Wi-Fi, join the network the board shows, upload the new firmware from a browser. It checks itself and rolls back if it fails.'],
-  ];
-  const tabs = document.querySelector('.tabs'), img = document.getElementById('vimg'),
-        title = document.getElementById('vtitle'), desc = document.getElementById('vdesc');
-  const show = (i, focus) => {
-    const [file, , t, d] = SCREENS[i];
-    img.src = 'media/screen-' + file + '.png'; img.alt = t + ': ' + d;
-    title.textContent = t; desc.textContent = d;
-    [...tabs.children].forEach((b, j) => { b.setAttribute('aria-selected', j === i); b.tabIndex = j === i ? 0 : -1; });
-    if (focus) tabs.children[i].focus();
-  };
-  SCREENS.forEach(([file, label], i) => {
-    const b = document.createElement('button');
-    b.className = 'tab'; b.type = 'button'; b.role = 'tab'; b.textContent = label;
-    b.addEventListener('click', () => show(i));
-    b.addEventListener('keydown', e => {
-      if (e.key === 'ArrowRight') show((i + 1) % SCREENS.length, true);
-      if (e.key === 'ArrowLeft') show((i + SCREENS.length - 1) % SCREENS.length, true);
-    });
-    tabs.appendChild(b);
-    new Image().src = 'media/screen-' + file + '.png';   // preload
-  });
-  show(0);
-})();
-</script>
 </body>
 </html>

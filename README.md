@@ -41,13 +41,13 @@ camera is modified.
 
 ## What you need
 
-- A **Waveshare ESP32-S3-Touch-LCD-4.3** (the 800 × 480 version).
-- A short **USB-C cable with a right-angle plug** (camera rear port to the board's USB port).
-- For the REC key: a **Kailh Choc V2** (MX-stem) switch, a **1 kΩ** resistor, two wires.
-- A **3D printer** for the case (PETG or ASA; multi-colour optional), two 1/4"-20 button-head screws,
-  four M2 × 5 screws and some thin foam tape.
+- A **Waveshare ESP32-S3-Touch-LCD-4.3** (the 800 × 480 version, not the 4.3B).
+- A short **USB-C cable with a right-angle plug**.
+- For the REC key: a **Kailh Choc V2** switch, a **1 kΩ** resistor and two wires.
+- A **3D printer** for the case, two **1/4"-20 × 3/8"** button-head screws, four **M2 × 5** screws and
+  some 1 mm foam tape.
 
-Full parts list and wiring: [docs/hardware.md](docs/hardware.md).
+Full shopping list with quantities and what to look for: [docs/hardware.md](docs/hardware.md#shopping-list).
 
 ## Get started
 

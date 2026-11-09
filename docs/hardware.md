@@ -4,15 +4,24 @@
 > ports (UART and USB). Use the UART port with a computer only while the camera cable is unplugged,
 > and plug the camera back in only after the computer is disconnected.
 
-## What you need
+## Shopping list
 
-| Part | Notes |
-|---|---|
-| Waveshare **ESP32-S3-Touch-LCD-4.3** | 800 x 480 capacitive touchscreen with an ESP32-S3, 16 MB flash, 8 MB PSRAM. The non-B version (on/off backlight). |
-| USB-C cable, right-angle plug | camera's rear USB-C to the board's **USB** port. Power only. |
-| Key switch with an MX-style stem (e.g. Kailh Choc V2 Brown) | the physical REC button |
-| 1 kΩ resistor and a short two-wire lead | REC button wiring |
-| Printed FYXIS case, 2 x 1/4"-20 button-head screws, 4 x M2 x 5 screws, foam tape | see `enclosure/README.md` |
+Everything for one unit. No camera parts are modified.
+
+| Qty | Part | What to look for |
+|---|---|---|
+| 1 | **Waveshare ESP32-S3-Touch-LCD-4.3** | The 800 × 480 version, *not* the 4.3B. From Waveshare's store or Amazon. |
+| 1 | **USB-C to USB-C cable, right-angle** | 15–30 cm, with a 90° plug at least at the board end. USB 2.0 is enough; it only carries power. |
+| 1 | **Kailh Choc V2 key switch** (PG1353) | Brown (tactile) is what the case was made for. The printed keycap fits its MX-style cross stem. Buy a couple; they're cheap. |
+| 1 | **1 kΩ resistor**, 1/4 W | Any through-hole resistor. |
+| 1 | **Hook-up wire**, about 26–28 AWG | Two short lengths (~10 cm each), plus a little heat-shrink. Soldered to the board's sensor header and the switch. |
+| 2 | **1/4"-20 button-head screw, 3/8" long** | Into the PYXIS side plate. Use 5/16" if your plate's holes are shallower. |
+| 4 | **M2 × 5 mm button-head screw** | Self-tapping / thread-forming into the case's pilot holes. |
+| ~30 cm | **1 mm foam tape** | Single-sided, about 5 mm wide, for the glass border. |
+| ~60 g | **PETG or ASA filament** | Black for the case. Optional small amounts of white and red for the printed lettering and key (multi-colour printer). |
+
+Tools: a 3D printer, a soldering iron, hex keys for the screws (5/32" for the 1/4"-20 button heads,
+1.3 mm for the M2), and a USB-C cable to connect the board to a computer once for flashing.
 
 ## How it connects
 
