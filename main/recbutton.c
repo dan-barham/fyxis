@@ -8,7 +8,7 @@
 #define LOCKOUT_MS   400    // a second press this soon after one that acted is ignored
 #define HOLD_MS      500    // "Hold to stop"
 
-static volatile uint32_t s_hint_seq;
+static volatile uint32_t s_hint_seq, s_press_seq;
 static volatile int s_hold_pct;
 static uint32_t s_last_act_ms;
 static bool s_acted_once;
@@ -16,6 +16,7 @@ static bool s_holding;             // down, waiting for the hold to complete
 static uint32_t s_down_ms;
 
 uint32_t recbutton_hint_seq(void) { return s_hint_seq; }
+uint32_t recbutton_press_seq(void) { return s_press_seq; }
 int recbutton_hold_progress(void) { return s_hold_pct; }
 
 static void act(bool start)
@@ -28,6 +29,7 @@ static void act(bool start)
 void recbutton_down(void)
 {
     const uint32_t now = plat_ms();
+    s_press_seq++;
     if (s_acted_once && now - s_last_act_ms < LOCKOUT_MS) return;
     cam_state_t st;
     camera_get(&st);

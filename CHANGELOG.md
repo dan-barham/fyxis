@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- **Sleep:** with no camera for a minute (or 5, or never: Settings › Display), the screen and its
+  backlight go off, the panel refreshes more slowly and Bluetooth scans at about a tenth of the duty
+  cycle. The camera coming back, a touch or the REC key wakes it.
+
 ## 2.1 — November 2026
 - **Presets:** six one-tap combinations of FPS, shutter angle, EI, white balance and tint (tap the timecode).
 - **Take log:** take number, start timecode and length for every take; `TAKE 14 00:01:23` after each one.

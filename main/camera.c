@@ -66,6 +66,15 @@ static bool s_went_online, s_pin_asked;     // s_pin_asked: a PIN prompt (not a 
 
 static void start_scan(void);
 
+// Scanning. Awake: NimBLE's default, listening all the time, so the camera is found the moment it
+// advertises. While the screen sleeps: listen 60 ms in every 640 ms (about a tenth of the radio
+// time), so finding the camera again takes a second or two longer. Units: 0.625 ms.
+#define SCAN_SLOW_ITVL  0x0400
+#define SCAN_SLOW_WIN   0x0060
+static volatile bool s_scan_slow;
+static bool s_synced;                       // host ready; on_sync starts the first scan
+static struct ble_npl_event s_scan_ev;      // restarts the scan with the new duty cycle
+
 // ---------- shared-protocol hooks ----------
 void camproto_lock(void)   { xSemaphoreTake(s_lock, portMAX_DELAY); }
 void camproto_unlock(void) { xSemaphoreGive(s_lock); }
@@ -454,18 +463,30 @@ static int gap_cb(struct ble_gap_event *ev, void *arg)
 
 static void start_scan(void)
 {
-    if (s_conn != BLE_HS_CONN_HANDLE_NONE || ble_gap_disc_active()) return;
+    if (s_conn != BLE_HS_CONN_HANDLE_NONE || ble_gap_disc_active() || ble_gap_conn_active()) return;
     struct ble_gap_disc_params p = {0};
     p.filter_duplicates = 1;
     p.passive = 0;                 // active: the service UUID may be in the scan response
+    if (s_scan_slow) { p.itvl = SCAN_SLOW_ITVL; p.window = SCAN_SLOW_WIN; }   // 0 = NimBLE's default
     int rc = ble_gap_disc(s_own_addr_type, BLE_HS_FOREVER, &p, gap_cb, NULL);
     if (rc) ESP_LOGE(TAG, "scan start failed: %d", rc);
+}
+
+// Runs on the NimBLE host task: a scan in progress is restarted with the new duty cycle.
+static void scan_mode_ev(struct ble_npl_event *ev)
+{
+    (void)ev;
+    if (s_conn != BLE_HS_CONN_HANDLE_NONE || ble_gap_conn_active()) return;
+    if (ble_gap_disc_active()) ble_gap_disc_cancel();
+    start_scan();
+    ESP_LOGI(TAG, "scanning %s", s_scan_slow ? "slowly (screen asleep)" : "continuously");
 }
 
 static void on_sync(void)
 {
     ble_hs_util_ensure_addr(0);
     ble_hs_id_infer_auto(0, &s_own_addr_type);
+    s_synced = true;
     set_link(LINK_SEARCHING);
     start_scan();
     ble_npl_callout_init(&s_stats_timer, nimble_port_get_dflt_eventq(), stats_tick, NULL);
@@ -508,7 +529,15 @@ void camera_start(void)
     ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_store_config_init();
+    ble_npl_event_init(&s_scan_ev, scan_mode_ev, NULL);
     nimble_port_freertos_init(host_task);
+}
+
+void camera_set_low_power(bool on)
+{
+    if (s_scan_slow == on) return;
+    s_scan_slow = on;
+    if (s_synced) ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_scan_ev);
 }
 
 void camera_get(cam_state_t *out) { camproto_get(out); }

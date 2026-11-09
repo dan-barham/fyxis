@@ -8,6 +8,9 @@
 
 enum { TALLY_THICK, TALLY_THIN, TALLY_OFF };
 enum { BATT_SHOW_VOLTS, BATT_SHOW_PERCENT };
+// Sleep with no camera. SLEEP_1MIN must stay 0: settings saved by 2.1 have a padding byte where
+// this field now is, and it reads as 0.
+enum { SLEEP_1MIN, SLEEP_5MIN, SLEEP_NEVER };
 
 typedef struct {
     uint8_t  rec_hold_stop;    // 1 = the REC button has to be held 0.5 s to stop (start is instant)
@@ -21,6 +24,8 @@ typedef struct {
     uint16_t wb_step;          // kelvin per white-balance step
     // --- added in 2.1 (older saved settings get the defaults for these) ---
     uint8_t  night;            // 1 = all-red night palette
+    // --- added in 2.2 ---
+    uint8_t  sleep;            // SLEEP_*: screen off and slow Bluetooth scan after this long with no camera
 } settings_t;
 
 // Presets: a saved FPS / shutter / EI / WB + tint, applied in one tap.
@@ -53,3 +58,6 @@ uint64_t plat_us(void);
 void plat_restart(void);          // saves settings first
 uint32_t plat_free_internal(void);
 uint32_t plat_free_psram(void);
+// Display sleep: off = backlight off and the panel refreshed slowly (it shows black by then);
+// on = back to normal. Firmware: board.c. Simulator: only logs.
+void plat_display_power(bool on);

@@ -83,3 +83,6 @@ void camera_set_wb(int kelvin, int tint);       // exact white balance and tint
 void camera_enter_pin(uint32_t pin);     // answer the pairing request
 void camera_forget(void);                // drop the stored pairing and search again
 void camera_get_diag(cam_diag_t *out);
+// While the screen sleeps: scan for the camera at a low duty cycle instead of all the time.
+// Only affects searching; a connection is never slowed down.
+void camera_set_low_power(bool on);

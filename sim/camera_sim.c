@@ -255,6 +255,8 @@ void camera_start(void)
 
 void camera_get(cam_state_t *out) { camproto_get(out); }
 
+void camera_set_low_power(bool on) { printf("[sim] Bluetooth scan %s\n", on ? "slow" : "normal"); fflush(stdout); }
+
 void camera_step(cam_param_t p, int dir)
 {
     static const char *NAMES[] = { "EI", "SHUTTER ANGLE", "SHUTTER SPEED", "WB", "TINT", "FPS" };

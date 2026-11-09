@@ -19,6 +19,8 @@ void recbutton_start(void);
 void recbutton_down(void);
 void recbutton_up(void);
 
+// Bumps on every press, connected or not (wakes the screen from sleep).
+uint32_t recbutton_press_seq(void);
 // Bumps when a short press was ignored because "Hold to stop" is on (the UI shows a hint).
 uint32_t recbutton_hint_seq(void);
 // > 0 while the button is being held to stop: how far through the hold, 0-100.

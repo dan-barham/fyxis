@@ -21,6 +21,8 @@
 //    values stay in grey and the tally is suppressed.
 //  - Tap the battery strip (bottom right) for Settings.
 //  - First connection: the camera shows a 6-digit PIN; a keypad appears here to enter it.
+//  - Sleep: with no camera for a minute (Settings > Display), the screen goes black and its
+//    backlight off, and Bluetooth scans slowly. The camera, a touch or the REC button wakes it.
 //
 // Drawing: every widget is only touched when its text or colour actually changes, so a
 // timecode tick redraws two or three digits and nothing else. State is read every 10 ms.
@@ -873,7 +875,7 @@ enum { PG_REC, PG_DISPLAY, PG_BATT, PG_CAMERA, PG_TAKES, PG_UPDATE, PG_ABOUT, NP
 static lv_obj_t *s_set, *s_nav[NPAGES], *s_nav_lbl[NPAGES], *s_sec[NPAGES];
 static int s_set_page;
 enum { SID_REC_HOLD, SID_TALLY, SID_CLIP, SID_FLIP, SID_START_LOCK, SID_BATT_LOW, SID_BATT_CRIT,
-       SID_BATT_SHOW, SID_WB_STEP, SID_NIGHT };
+       SID_BATT_SHOW, SID_WB_STEP, SID_NIGHT, SID_SLEEP };
 
 static void rebuild_async(void *arg);
 
@@ -891,6 +893,7 @@ static int sget(int id)
     case SID_BATT_SHOW:  return c->batt_show;
     case SID_WB_STEP:    return c->wb_step;
     case SID_NIGHT:      return c->night;
+    case SID_SLEEP:      return c->sleep;
     }
     return 0;
 }
@@ -913,6 +916,7 @@ static void sput(int id, int v)
     case SID_BATT_SHOW:  c->batt_show = v; break;
     case SID_WB_STEP:    c->wb_step = v; break;
     case SID_NIGHT:      c->night = v; break;
+    case SID_SLEEP:      c->sleep = v; break;
     }
     settings_changed();
     if (id == SID_FLIP) plat_restart();            // the display is set up once, at start-up
@@ -1421,6 +1425,85 @@ static void track_recording(uint32_t now)
     }
 }
 
+// ---------- sleep ----------
+// With no camera for a while (Settings > Display > Sleep), a black cover goes over everything,
+// then the backlight goes off, the panel is refreshed slowly and Bluetooth scans at a low duty
+// cycle. Anything that counts as activity wakes it: the camera link leaving SEARCHING (the camera
+// is back, or asking for its PIN), a touch, the REC button, or a Wi-Fi update running.
+//
+// Espressif's display adapter has its own auto-sleep, but it pauses LVGL, and LVGL is what polls
+// the touch controller here (its interrupt line isn't wired), so a touch couldn't wake it.
+#ifndef SLEEP_MIN_MS
+#define SLEEP_MIN_MS  60000              // one "minute" of the Sleep setting (shorter in sim tests)
+#endif
+#define SLEEP_BLANK_MS 150               // time for the black cover to reach the panel
+enum { SL_AWAKE, SL_BLANKING, SL_ASLEEP };
+static int s_sleep_state = SL_AWAKE;
+static uint32_t s_sleep_t;               // when blanking started
+static uint32_t s_active_ms;             // last activity other than touch
+static uint32_t s_press_seen;            // recbutton_press_seq() last seen
+static lv_obj_t *s_sleep;                // the black cover (top layer); swallows the waking touch
+static bool s_sleep_touch;               // a finger is on the cover
+
+static void sleep_cover_cb(lv_event_t *e)
+{
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) { s_sleep_touch = true; return; }
+    // Released: the touch that woke the screen is over; take the (now clear) cover away.
+    s_sleep_touch = false;
+    if (s_sleep_state == SL_AWAKE) set_shown(s_sleep, false);
+}
+
+static uint32_t sleep_timeout(void)
+{
+    switch (settings()->sleep) {
+    case SLEEP_1MIN: return SLEEP_MIN_MS;
+    case SLEEP_5MIN: return 5 * SLEEP_MIN_MS;
+    default:         return 0;
+    }
+}
+
+static void sleep_tick(uint32_t now)
+{
+    upd_status_t u;
+    update_get(&u);
+    if (s_st.link != LINK_SEARCHING || (u.state != UPD_OFF && u.state != UPD_FAILED)) s_active_ms = now;
+    if (recbutton_press_seq() != s_press_seen) { s_press_seen = recbutton_press_seq(); s_active_ms = now; }
+    uint32_t idle = now - s_active_ms;
+    const uint32_t touch_idle = lv_display_get_inactive_time(NULL);
+    if (touch_idle < idle) idle = touch_idle;
+    const uint32_t timeout = sleep_timeout();
+    const bool want = timeout && idle >= timeout;
+
+    if (want && s_sleep_state == SL_AWAKE) {
+        s_sleep_state = SL_BLANKING;
+        s_sleep_t = now;
+        lv_obj_set_style_bg_opa(s_sleep, LV_OPA_COVER, 0);
+        set_shown(s_sleep, true);
+#ifdef ESP_PLATFORM
+        ESP_LOGI("sleep", "no camera for %u s: sleeping", (unsigned)(idle / 1000));
+#endif
+    } else if (want && s_sleep_state == SL_BLANKING && now - s_sleep_t >= SLEEP_BLANK_MS) {
+        s_sleep_state = SL_ASLEEP;
+        plat_display_power(false);
+        camera_set_low_power(true);
+    } else if (!want && s_sleep_state != SL_AWAKE) {
+        if (s_sleep_state == SL_ASLEEP) {
+            plat_display_power(true);
+            camera_set_low_power(false);
+        }
+        s_sleep_state = SL_AWAKE;
+        force_redraw();
+        // Woken by a touch: show the screen at once, but keep the clear cover until the finger
+        // lifts, so the waking touch doesn't also press whatever is under it.
+        if (s_sleep_touch) lv_obj_set_style_bg_opa(s_sleep, LV_OPA_TRANSP, 0);
+        else set_shown(s_sleep, false);
+#ifdef ESP_PLATFORM
+        ESP_LOGI("sleep", "awake (%s)", s_st.link != LINK_SEARCHING ? "camera" : s_sleep_touch ? "touch" : "REC button or Wi-Fi update");
+#endif
+    }
+}
+
 static void tick_cb(lv_timer_t *t)
 {
     static uint32_t slow;
@@ -1435,6 +1518,7 @@ static void tick_cb(lv_timer_t *t)
     }
     update_status(now);
     frame_tick(now);
+    sleep_tick(now);
     if (now - slow >= BATT_TICK_MS) {
         slow = now;
         batt_tick();
@@ -1707,6 +1791,10 @@ static void build_settings(lv_obj_t *scr, int W, int H)
     static const char *const LOCKS[] = { "Unlocked", "Locked" };
     static const int LOCKS_V[] = { 0, 1 };
     sseg_row(s_sec[PG_DISPLAY], &y, "At start-up", "Whether editing starts unlocked or locked.", SID_START_LOCK, 2, LOCKS, LOCKS_V);
+    static const char *const SLEEPS[] = { "1 min", "5 min", "Never" };
+    static const int SLEEPS_V[] = { SLEEP_1MIN, SLEEP_5MIN, SLEEP_NEVER };
+    sseg_row(s_sec[PG_DISPLAY], &y, "Sleep", "Screen off with no camera for this long. Touch to wake.",
+             SID_SLEEP, 3, SLEEPS, SLEEPS_V);
 
     y = 0;                                                       // Battery
     sstep_row(s_sec[PG_BATT], &y, "Low warning", "Turns amber below this.", SID_BATT_LOW, 11500, 16500, 100);
@@ -2183,6 +2271,17 @@ static void build(void)
         lv_obj_add_flag(s_tally[i], LV_OBJ_FLAG_HIDDEN);
     }
     tally_layout();
+
+    // Over even that: the sleep cover (black while asleep, clear for the touch that wakes it).
+    s_sleep = box(lv_layer_top());
+    lv_obj_set_size(s_sleep, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_sleep, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_sleep, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_sleep, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_sleep, sleep_cover_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_sleep, sleep_cover_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(s_sleep, sleep_cover_cb, LV_EVENT_PRESS_LOST, NULL);
+    set_shown(s_sleep, s_sleep_state != SL_AWAKE);
 }
 
 // Night mode changes every colour: rebuild all the screens with the new palette. Runs from

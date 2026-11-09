@@ -29,6 +29,13 @@
   PYXIS: if nothing appears with an EF / L-mount lens, the camera doesn't send it over Bluetooth.
 - **Night mode** (Settings › Display › Colours): everything in dim red on black, for dark sets. The
   record frame stays full red.
+- **Sleep:** after a minute with no camera link (Settings › Display › Sleep: 1 min, 5 min or Never), the
+  screen goes black and its backlight off, the panel is refreshed at a quarter of its normal rate, and
+  Bluetooth listens for the camera about a tenth of the time instead of all the time. It wakes by
+  itself when the camera comes back (Bluetooth on, or the camera switched on), which takes a second or
+  two longer than when awake. A touch or the REC key also wakes it; the touch that wakes it doesn't
+  press anything. It never sleeps while connected, while the PIN keypad is waiting, or during a Wi-Fi
+  update.
 - **Tap a tile** while unlocked to open its editor: the value very large, round **−** / **+** buttons
   (hold to repeat), **Done** to close. White balance and tint share one editor.
 - **Timecode tile:** the camera's timecode at 64 px. Underneath, on the left: the link state in amber
@@ -73,6 +80,7 @@
 | Display | Colours | Normal, Night (all dim red) |
 | | Orientation | USB at rear (screen turned 180°), USB at front. The board restarts to apply it |
 | | At start-up | Unlocked, Locked |
+| | Sleep | **1 min**, 5 min, Never: screen off and slow Bluetooth scanning after this long with no camera |
 | Battery | Low warning / Critical | 11.5–16.5 V in 0.1 V steps (critical stays at least 0.2 V below low) |
 | | Show | Volts, Percent |
 | | (graph) | the last 2 hours of battery voltage with the two warning levels, and the time-left estimate |

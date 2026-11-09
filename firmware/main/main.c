@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
 #include "bigsix.h"
+#include "board.h"
 #include "settings.h"
 #include "update.h"
 #include "waveshare_rgb_lcd_port.h"
@@ -52,6 +53,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(waveshare_esp32_s3_rgb_lcd_init(frame_buffer_count, &panel_handle, &touch_handle));
     ESP_ERROR_CHECK(waveshare_rgb_lcd_backlight_on());
+    board_set_panel(panel_handle);                     // for the display sleep (plat_display_power)
     if (touch_handle) {                                // touch follows the picture
         esp_lcd_touch_set_mirror_x(touch_handle, flip);
         esp_lcd_touch_set_mirror_y(touch_handle, flip);
