@@ -16,22 +16,27 @@ Service `291D567A-6D75-11E6-8B77-86F30CA893D3`; settings arrive as notifications
 | 10.1 flags | Card slots | bit 5 = slot 1, bit 6 = slot 2. Cleared on eject (the time isn't resent) |
 | 9.0 | Battery / DC input | int16: mV at the 2-pin LEMO (further fields logged by the simulator, not used yet) |
 | 10.1 | Transport mode | int8 ×5: mode (0 preview, 1 playback, 2 record), speed, flags, slot 1, slot 2. Record start/stop writes it back with the mode changed; starting also clears the speed and flag bits 0–1, so REC rolls a clip straight from playback (checked on the PYXIS) |
-| 10.2 | Playback step | int8 ×2: 0 clip / 1 frame, steps (−1 previous, +1 next) |
+| 10.2 | Playback control | int8, one value: 0 = previous clip, 1 = next clip (Blackmagic's protocol document; there is no frame step) |
 
 ### Playback (tested on a PYXIS 12K, 9 Nov 2026, with the simulator's test keys)
 
-- **Works:** writing 10.1 with mode 1 plays (speed 1), pauses (speed 0), plays at 2× (speed 2) and
-  backwards (speed −1); mode 0 returns to live view. 10.2 clip steps move to the previous / next
-  clip. While playing, the Timecode characteristic sends the clip's own timecode.
-- **REC from playback:** the REC packet (mode 2, speed 0, loop and bit 1 cleared) goes straight from
+- **Play / pause / speed:** 10.1 with mode 1 and a speed. 0 pauses; every speed tried works,
+  forwards and backwards: ±1, 2, 4, 8, 16, 32. Playback runs across clip boundaries and stops at
+  either end of the card (the camera then reports speed 0). Mode 0 returns to live view.
+- **Clip steps:** 10.2 with 0 goes to the start of the previous clip, 1 to the start of the next,
+  paused; nothing happens at either end of the card. (An earlier version sent two values, so both
+  buttons meant "previous" and next-clip did nothing.)
+- **Timecode:** while in playback, the Timecode characteristic sends the clip's own timecode. That
+  is how FYXIS does IN / OUT and loop, since there is no seek to a position over Bluetooth.
+- **REC from playback:** the REC packet (mode 2, speed 0, flag bits 0–1 cleared) goes straight from
   playback to recording in one press.
-- **No effect:** 10.2 frame steps (type 1) are acknowledged but the picture and timecode don't move.
-- **Loop** (10.1 flag bit 0) is acknowledged but never reported back; not confirmed either way.
-- **Flag bit 1** is set by the camera while a clip is actually playing and cleared when paused (the
-  protocol document calls it "play all").
+- **Ignored:** the loop and play-all flags (10.1 flag bits 0 and 1). With either or both set, the
+  camera still plays through every clip and stops at the end of the card. The camera sets bit 1
+  itself while it's playing and clears it when paused.
 - Playback only finds clips recorded in the camera's current format; right after formatting the
   card the camera answered play with "No clips in this format".
-- 2× and backwards were reported by the camera but not watched on its screen.
+- Clip lists, thumbnails and frame-accurate positioning exist only in the camera's REST API, over
+  its Ethernet port; FYXIS has no Ethernet, so it doesn't use them.
 
 Timecode comes from its own characteristic (`6D8F2110-…`, notifications) as 32-bit BCD
 `HH:MM:SS:FF`. The Mac simulator prints the first few raw values so the decoding can be checked.

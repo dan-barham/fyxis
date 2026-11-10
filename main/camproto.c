@@ -18,8 +18,7 @@
 //        with the mode changed (and, to start, the playback speed and loop flags cleared, so REC
 //        rolls a clip straight from playback).
 //        speed: playback, 0 paused, 1 normal, >1 faster, <0 backwards. flags: bit0 loop, bit1 play all.
-//   10.2 playback control    int8[2]   {0 clip / 1 frame, steps (-1 previous, +1 next)}
-//        (10.1 play and 10.2 are from Blackmagic's protocol document; not yet checked on the PYXIS)
+//   10.2 playback control    int8      0 = previous clip, 1 = next clip (one value; there's no frame step)
 // Timecode characteristic: 32-bit BCD HH:MM:SS:FF (09:12:53:10 = 0x09125310).
 
 #include <string.h>
@@ -394,7 +393,7 @@ int camproto_build_record(bool start, uint8_t out[32])
     return len;
 }
 
-int camproto_build_transport(int mode, int speed, bool loop, uint8_t out[32])
+int camproto_build_transport(int mode, int speed, int loop, uint8_t out[32])
 {
     cam_state_t st;
     camproto_get(&st);
@@ -406,17 +405,17 @@ int camproto_build_transport(int mode, int speed, bool loop, uint8_t out[32])
     camproto_unlock();
     v[0] = mode;
     v[1] = clampi(speed, -128, 127);
-    v[2] = (v[2] & ~1) | (loop ? 1 : 0);
-    return camproto_build(10, 1, 1, v, full ? 5 : 2, out);
+    v[2] = (v[2] & ~3) | (loop & 3);
+    return camproto_build(10, 1, 1, v, full ? 5 : 3, out);
 }
 
-int camproto_build_playback_step(bool frame, int steps, uint8_t out[32])
+int camproto_build_clip_step(bool next, uint8_t out[32])
 {
     cam_state_t st;
     camproto_get(&st);
-    if (!st.connected || st.recording || !steps) return 0;
-    int32_t v[2] = { frame ? 1 : 0, clampi(steps, -128, 127) };
-    return camproto_build(10, 2, 1, v, 2, out);
+    if (!st.connected || st.recording) return 0;
+    int32_t v = next ? 1 : 0;
+    return camproto_build(10, 2, 1, &v, 1, out);
 }
 
 int camproto_build_shutter_angle(int angle_x100, uint8_t out[32])

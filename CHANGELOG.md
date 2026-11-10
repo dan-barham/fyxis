@@ -1,8 +1,9 @@
 # Changelog
 
 ## Unreleased
-- **Playback screen:** tap the card slots for play / pause, reverse, 2×, previous / next clip and the
-  clip's timecode; opens by itself when the camera plays back. Live view returns.
+- **Playback screen:** tap the card slots for play / pause, previous / next clip, a shuttle strip
+  (−32× to 32×), IN / OUT marks and loop, with the clip's timecode. Opens by itself when the camera
+  plays back. Live view returns.
 - **REC from playback:** the REC key now always rolls a clip, even while the camera is playing one back.
 - **Exposure lock:** changing the frame rate, on the board or the camera, also moves the shutter angle
   so the shutter speed and brightness stay the same (24 → 48 fps at 180° becomes 360°). Settings ›

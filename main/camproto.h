@@ -42,8 +42,8 @@ int camproto_speed_for_angle(const cam_state_t *st, int angle_x100);
 // and loop flags, so it rolls a clip straight from playback.
 int camproto_build_record(bool start, uint8_t out[32]);
 
-// Playback (untested on the PYXIS). Transport: mode 0 preview / 1 play, speed (0 pause, 1 normal,
-// >1 faster, <0 backwards), loop. Step: previous / next clip (frame = false) or frame, by steps.
+// Playback. Transport: mode 0 preview / 1 play, speed (0 pause, 1 normal, >1 faster, <0 backwards),
+// loop = transport flag bits: 1 loop, 2 play all. Clip step: previous / next clip.
 // Return 0 when not live or recording.
-int camproto_build_transport(int mode, int speed, bool loop, uint8_t out[32]);
-int camproto_build_playback_step(bool frame, int steps, uint8_t out[32]);
+int camproto_build_transport(int mode, int speed, int loop, uint8_t out[32]);
+int camproto_build_clip_step(bool next, uint8_t out[32]);

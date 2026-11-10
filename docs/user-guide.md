@@ -32,12 +32,20 @@
   record frame stays full red.
 - **Playback:** tap the card slots under the timecode to put the camera into playback (paused on
   the last clip) and open the playback screen; it also opens by itself when you press Play on the
-  camera. It shows the clip's timecode and has **previous clip**, **reverse**, **play / pause**,
-  **2× fast forward** and **next clip**; **Live view** goes back. The clip plays on the camera's
-  screen or its video output, not on this one. The REC button rolls a new clip straight from
-  playback and closes the screen. While editing is locked, tapping the cards only nudges the lock
-  knob. Frame-by-frame stepping isn't there because the PYXIS ignores it over Bluetooth. The camera
-  only plays clips in its current recording format.
+  camera. The clip plays on the camera's screen or its video output, not on this one.
+  - **Previous / play-pause / next:** next and previous go to the start of a clip, paused.
+  - **Shuttle** (the strip along the bottom): drag the knob left or right; the further you drag, the
+    faster it plays, up to 32× either way. Let go and it pauses.
+  - **IN / OUT:** tap to mark the timecode on screen; tap again to clear. With OUT set, playback
+    pauses there. Press play at or past OUT and it starts again from IN.
+  - **LOOP:** at OUT (or, with no OUT, the end of the card) the board shuttles back at 32× to IN (or
+    the start of the card) and plays again. The camera ignores its own loop setting over Bluetooth,
+    so the board does it from the timecode: it takes a moment and lands up to a few frames early.
+  - **Live view** goes back to the live picture. The REC button rolls a new clip straight from
+    playback and closes the screen.
+  - While editing is locked, tapping the cards only nudges the lock knob. The camera only plays
+    clips in its current recording format. A clip list, thumbnails and frame-accurate scrubbing
+    would need the camera's Ethernet port, which FYXIS doesn't use.
 
   ![Playback screen](../media/screen-playback.png)
 - **Exposure lock** (Settings › Camera › Exposure lock › Keep speed): in angle mode the camera keeps
