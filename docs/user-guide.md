@@ -30,6 +30,16 @@
   PYXIS: if nothing appears with an EF / L-mount lens, the camera doesn't send it over Bluetooth.
 - **Night mode** (Settings › Display › Colours): everything in dim red on black, for dark sets. The
   record frame stays full red.
+- **Playback:** tap the card slots under the timecode to put the camera into playback (paused on
+  the last clip) and open the playback screen; it also opens by itself when you press Play on the
+  camera. It shows the clip's timecode and has **previous clip**, **reverse**, **play / pause**,
+  **2× fast forward** and **next clip**; **Live view** goes back. The clip plays on the camera's
+  screen or its video output, not on this one. The REC button rolls a new clip straight from
+  playback and closes the screen. While editing is locked, tapping the cards only nudges the lock
+  knob. Frame-by-frame stepping isn't there because the PYXIS ignores it over Bluetooth. The camera
+  only plays clips in its current recording format.
+
+  ![Playback screen](../media/screen-playback.png)
 - **Exposure lock** (Settings › Camera › Exposure lock › Keep speed): in angle mode the camera keeps
   the shutter *angle* when the frame rate changes, so the shutter *speed* and the brightness change
   with it (24 → 48 fps at 180° is 1/48 → 1/96, a stop darker). With the lock on, the board answers

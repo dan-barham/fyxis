@@ -379,6 +379,20 @@ static void send_logged(const char *what, const uint8_t *b, int len)
     if (len) send_to_camera(b, len);
 }
 
+void camera_playback(int mode, int speed)
+{
+    uint8_t b[32];
+    char what[48];
+    snprintf(what, sizeof what, "playback mode %d speed %d", mode, speed);
+    send_logged(what, b, camproto_build_transport(mode, speed, false, b));
+}
+
+void camera_playback_clip(int steps)
+{
+    uint8_t b[32];
+    send_logged(steps > 0 ? "next clip" : "previous clip", b, camproto_build_playback_step(false, steps, b));
+}
+
 void camera_set_shutter_angle(int angle_x100)
 {
     uint8_t b[32];

@@ -21,6 +21,9 @@
 //    values stay in grey and the tally is suppressed.
 //  - Tap the battery strip (bottom right) for Settings.
 //  - First connection: the camera shows a 6-digit PIN; a keypad appears here to enter it.
+//  - Playback: tap the card slots under the timecode (or press Play on the camera) for a playback
+//    screen: the clip's timecode, previous / next clip, reverse, play / pause, 2x, and Live view.
+//    The REC button always rolls a new clip, from playback too.
 //  - Exposure lock (Settings > Camera): a frame-rate change also moves the shutter angle, so the
 //    shutter speed, and so the brightness, stays the same. The shutter tile shows LOCKED.
 //  - Sleep: with no camera for a minute (Settings > Display), the screen goes black and its
@@ -1487,6 +1490,7 @@ static void xl_tick(uint32_t now)
     const double f = sensor_fps(&s_st);
     const int a = s_st.shutter_angle_x100;
     if (f <= 0 || a <= 0) return;
+    if (s_st.transport_mode == 1) s_xl_hold_until = now + 1500;   // playback: the clip's format, not ours
     if (s_xl_exp == 0 || (int32_t)(now - s_xl_hold_until) < 0 || s_st.recording) {
         if (s_xl_exp == 0 || a != s_xl_angle || f != s_xl_fps) { xl_adopt(f, a); force_redraw(); }
         return;
@@ -1520,6 +1524,151 @@ static void xl_tick(uint32_t now)
 #endif
     }
     force_redraw();
+}
+
+// ---------- playback ----------
+// Full screen, over everything but the record frame. Opens when the card slots are tapped (which
+// puts the camera into playback, paused) or when the camera goes into playback by itself, and
+// closes when it leaves playback: Live view, the REC button (which rolls a new clip), or the
+// camera's own buttons. Frame stepping isn't offered: the PYXIS ignores it (docs/protocol.md).
+enum { PB_PREV, PB_REV, PB_PLAY, PB_FAST, PB_NEXT, PB_NBTN };
+static lv_obj_t *s_pb, *s_pb_tc[11], *s_pb_state, *s_pb_btn[PB_NBTN];
+static int s_pb_mode_seen = -1;           // transport mode last tick
+static uint32_t s_pb_opened;              // when we asked for playback (closing waits for the camera)
+
+static bool pb_shown(void) { return s_pb && !lv_obj_has_flag(s_pb, LV_OBJ_FLAG_HIDDEN); }
+
+static void pb_render(void)
+{
+    if (!pb_shown()) return;
+    char tc[16];
+    if (s_st.tc_valid) snprintf(tc, sizeof tc, "%02d:%02d:%02d:%02d", s_st.tc_h % 100, s_st.tc_m % 100, s_st.tc_s % 100, s_st.tc_f % 100);
+    else               snprintf(tc, sizeof tc, "--:--:--:--");
+    for (int i = 0; i < 11; i++) {
+        const char ch[2] = { tc[i], 0 };
+        set_text(s_pb_tc[i], ch);
+    }
+    const int sp = s_st.transport_speed;
+    const bool in_pb = s_st.transport_mode == 1;
+    set_text(s_pb_state, !in_pb ? "OPENING" ELLIPSIS : sp == 0 ? "PAUSED" : sp < 0 ? "REVERSE" :
+                         sp >= 2 ? "FAST FORWARD" : "PLAYING");
+    set_text_color(s_pb_state, in_pb && sp != 0 ? C_TEXT : C_TEXT2);
+    set_bg(s_pb_btn[PB_REV], in_pb && sp < 0 ? C_SEG_ON : C_BTN);
+    set_bg(s_pb_btn[PB_FAST], in_pb && sp >= 2 ? C_SEG_ON : C_BTN);
+    lv_obj_invalidate(s_pb_btn[PB_PLAY]);         // its icon is play or pause
+}
+
+static void pb_close(void) { if (s_pb) set_shown(s_pb, false); }
+
+static void pb_show(void)
+{
+    editor_close();
+    presets_close();
+    settings_close();
+    set_shown(s_pb, true);
+    force_redraw();
+    pb_render();
+}
+
+// Tap on the card slots.
+static void pb_open_cb(lv_event_t *e)
+{
+    (void)e;
+    if (!s_st.connected || !s_st.have_data || s_st.recording) return;
+    if (!unlocked()) { lock_nudge(); return; }
+    if (s_st.transport_mode != 1) camera_playback(1, 0);   // into playback, paused on the last clip
+    s_pb_opened = lv_tick_get();
+    pb_show();
+}
+
+static void pb_btn_cb(lv_event_t *e)
+{
+    const int k = (int)(intptr_t)lv_event_get_user_data(e);
+    const int sp = s_st.transport_speed;
+    switch (k) {
+    case PB_PREV: camera_playback_clip(-1); break;
+    case PB_NEXT: camera_playback_clip(1); break;
+    case PB_PLAY: camera_playback(1, sp == 0 ? 1 : 0); break;
+    case PB_REV:  camera_playback(1, sp < 0 ? 1 : -1); break;
+    case PB_FAST: camera_playback(1, sp >= 2 ? 1 : 2); break;
+    }
+}
+
+static void pb_live_cb(lv_event_t *e)
+{
+    (void)e;
+    camera_playback(0, 0);
+    pb_close();
+}
+
+static void pb_tick(uint32_t now)
+{
+    const int mode = s_st.connected ? s_st.transport_mode : -1;
+    if (mode != s_pb_mode_seen) {
+        if (mode == 1 && !s_st.recording) pb_show();                            // camera went into playback
+        else if (s_pb_mode_seen == 1 || now - s_pb_opened > 2000) pb_close();   // left it (or never got there)
+        s_pb_mode_seen = mode;
+    }
+    if (pb_shown() && mode != 1 && now - s_pb_opened > 2000) pb_close();   // asked, but no playback came
+    pb_render();
+}
+
+// Transport icons, drawn (the icon fonts only hold the glyphs the UI already used).
+static void pb_tri(lv_layer_t *layer, int x0, int y0, int x1, int y1, int x2, int y2)
+{
+    lv_draw_triangle_dsc_t d;
+    lv_draw_triangle_dsc_init(&d);
+    d.color = C_TEXT;
+    d.opa = LV_OPA_COVER;
+    d.p[0].x = x0; d.p[0].y = y0;
+    d.p[1].x = x1; d.p[1].y = y1;
+    d.p[2].x = x2; d.p[2].y = y2;
+    lv_draw_triangle(layer, &d);
+}
+
+static void pb_bar(lv_layer_t *layer, int x, int y, int w, int h)
+{
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = C_TEXT;
+    d.bg_opa = LV_OPA_COVER;
+    d.radius = 2;
+    const lv_area_t a = { x, y, x + w - 1, y + h - 1 };
+    lv_draw_rect(layer, &d, &a);
+}
+
+// A right-pointing triangle a tall, its left edge at x (width corrected for the panel's pixels).
+static void pb_arrow(lv_layer_t *layer, int x, int cy, int a, int dir)
+{
+    const int w = rw(a * 2) * 7 / 8;                 // a bit narrower than tall
+    if (dir > 0) pb_tri(layer, x, cy - a, x, cy + a, x + w, cy);
+    else         pb_tri(layer, x + w, cy - a, x + w, cy + a, x, cy);
+}
+
+static void pb_icon_cb(lv_event_t *e)
+{
+    lv_obj_t *o = lv_event_get_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    const int k = (int)(intptr_t)lv_event_get_user_data(e);
+    lv_area_t c;
+    lv_obj_get_coords(o, &c);
+    const int cx = (c.x1 + c.x2) / 2, cy = (c.y1 + c.y2) / 2;
+    const int a = k == PB_PLAY ? 22 : 16;            // half height
+    const int w = rw(a * 2) * 7 / 8, bar = rw(a / 2);
+    switch (k) {
+    case PB_PLAY:
+        if (s_st.transport_mode == 1 && s_st.transport_speed != 0) {          // pause
+            pb_bar(layer, cx - rw(a * 3 / 4), cy - a, rw(a / 2), 2 * a);
+            pb_bar(layer, cx + rw(a / 4), cy - a, rw(a / 2), 2 * a);
+        } else {
+            pb_arrow(layer, cx - w / 2 + rw(3), cy, a, 1);                    // play (nudged to look centred)
+        }
+        break;
+    case PB_FAST: pb_arrow(layer, cx - w, cy, a, 1); pb_arrow(layer, cx, cy, a, 1); break;
+    case PB_REV:  pb_arrow(layer, cx - w, cy, a, -1); pb_arrow(layer, cx, cy, a, -1); break;
+    case PB_NEXT: pb_arrow(layer, cx - (w + bar) / 2, cy, a, 1); pb_bar(layer, cx + (w - bar) / 2, cy - a, bar, 2 * a); break;
+    case PB_PREV: pb_bar(layer, cx - (w + bar) / 2, cy - a, bar, 2 * a); pb_arrow(layer, cx - (w - bar) / 2 + bar, cy, a, -1); break;
+    }
 }
 
 // ---------- sleep ----------
@@ -1608,6 +1757,7 @@ static void tick_cb(lv_timer_t *t)
     camera_get(&s_st);
     track_recording(now);
     xl_tick(now);
+    pb_tick(now);
     if ((s_st.recording || !s_st.connected || !unlocked()) && s_ed_tile >= 0) editor_close();
     if (s_st.recording) { settings_close(); presets_close(); }
     if (s_st.seq != s_seq_drawn) {
@@ -2001,6 +2151,66 @@ static void build_settings(lv_obj_t *scr, int W, int H)
     lv_obj_add_flag(s_set, LV_OBJ_FLAG_HIDDEN);
 }
 
+// Playback screen.
+static void build_playback(lv_obj_t *scr, int W, int H)
+{
+    s_pb = box(scr);
+    lv_obj_set_size(s_pb, W, H);
+    lv_obj_set_style_bg_color(s_pb, C_BG, 0);
+    lv_obj_set_style_bg_opa(s_pb, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_pb, LV_OBJ_FLAG_CLICKABLE);                // swallow touches behind it
+
+    lv_obj_t *title = caption(s_pb, "PLAYBACK");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
+
+    int dig_w = 0;                                               // fixed cells, as on the main screen
+    for (char c = '0'; c <= '9'; c++) {
+        const int g = lv_font_get_glyph_width(&font_value_64, c, 0);
+        if (g > dig_w) dig_w = g;
+    }
+    const int col_w = lv_font_get_glyph_width(&font_value_64, ':', 0) + 4;
+    int x = (W - (8 * dig_w + 3 * col_w)) / 2;
+    for (int i = 0; i < 11; i++) {
+        const int w = i % 3 == 2 ? col_w : dig_w;
+        s_pb_tc[i] = text(s_pb, &font_value_64, C_TEXT);
+        lv_obj_set_size(s_pb_tc[i], w, LV_SIZE_CONTENT);
+        lv_obj_set_style_text_align(s_pb_tc[i], LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(s_pb_tc[i], x, 70);
+        x += w;
+    }
+    s_pb_state = caption(s_pb, "");
+    lv_obj_set_width(s_pb_state, W);
+    lv_obj_set_style_text_align(s_pb_state, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_pb_state, 0, 160);
+
+    const int b = 104, big = 128, gap = 22;                      // button heights
+    const int row_w = 4 * rw(b) + rw(big) + 4 * gap;
+    x = (W - row_w) / 2;
+    const int cy = 290;
+    for (int k = 0; k < PB_NBTN; k++) {
+        const int h = k == PB_PLAY ? big : b;
+        lv_obj_t *o = box(s_pb);
+        lv_obj_set_size(o, rw(h), h);
+        lv_obj_set_pos(o, x, cy - h / 2);
+        lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(o, k == PB_PLAY ? C_BLUE : C_BTN, 0);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(o, C_BTN_PR, LV_STATE_PRESSED);
+        lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(o, pb_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
+        lv_obj_add_event_cb(o, pb_icon_cb, LV_EVENT_DRAW_MAIN_END, (void *)(intptr_t)k);
+        s_pb_btn[k] = o;
+        x += rw(h) + gap;
+    }
+
+    lv_obj_t *live = pill(s_pb, "Live view", C_BTN);
+    lv_obj_set_size(live, 200, 52);
+    lv_obj_align(live, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_add_event_cb(live, pb_live_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_add_flag(s_pb, LV_OBJ_FLAG_HIDDEN);
+}
+
 // Presets: six cards, 3 x 2.
 static void build_presets(lv_obj_t *scr, int W, int H)
 {
@@ -2149,6 +2359,9 @@ static void build(void)
 
     lv_obj_t *slot_row = box(s_tc_tile);
     lv_obj_set_size(slot_row, slot_w, 26);
+    lv_obj_set_ext_click_area(slot_row, 14);                      // a bigger target than the text
+    lv_obj_add_flag(slot_row, LV_OBJ_FLAG_CLICKABLE);              // tap: playback
+    lv_obj_add_event_cb(slot_row, pb_open_cb, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_set_flex_flow(slot_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(slot_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(slot_row, 12, 0);
@@ -2334,6 +2547,7 @@ static void build(void)
 
     build_presets(scr, W, H);
     build_settings(scr, W, H);
+    build_playback(scr, W, H);
 
     // ---- PIN overlay: heading and digits on the left, round keypad on the right ----
     s_pin = box(scr);
@@ -2398,6 +2612,7 @@ static void rebuild_async(void *arg)
     s_tally_w = -1;
     s_ed_tile = -1;
     s_lk_drag = false;
+    s_pb_mode_seen = -1;
     build();
     force_redraw();
     settings_open();                                // back where the change was made

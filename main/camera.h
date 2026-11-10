@@ -77,6 +77,10 @@ void camera_start(void);                 // also initialises NVS (bond storage)
 void camera_get(cam_state_t *out);
 void camera_step(cam_param_t p, int dir);  // ignored unless online and not recording
 void camera_record(bool start);          // start / stop recording (ignored unless online)
+// Playback (ignored unless online and not recording): mode 0 = live view, 1 = playback; speed
+// 0 pause, 1 normal, 2 fast forward, -1 backwards. Step: previous (-1) / next (+1) clip.
+void camera_playback(int mode, int speed);
+void camera_playback_clip(int steps);
 void camera_set_shutter_angle(int angle_x100);  // exact angle, e.g. 17280 = 172.8°
 void camera_set_shutter_speed(int denom);       // exact 1/x speed, e.g. 50 = 1/50
 void camera_set_fps(int fps);                   // recording rate; the project rate = off-speed off

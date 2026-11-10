@@ -586,6 +586,18 @@ void camera_record(bool start)
     send_packet_at(b, camproto_build_record(start, b), true);   // ahead of anything queued
 }
 
+void camera_playback(int mode, int speed)
+{
+    uint8_t b[32];
+    send_packet_at(b, camproto_build_transport(mode, speed, false, b), true);
+}
+
+void camera_playback_clip(int steps)
+{
+    uint8_t b[32];
+    send_packet(b, camproto_build_playback_step(false, steps, b));
+}
+
 void camera_set_iso(int iso)
 {
     uint8_t b[32];
