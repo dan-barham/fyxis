@@ -1540,17 +1540,19 @@ static void xl_tick(uint32_t now)
 // clip), or the camera's own buttons.
 //
 // What the PYXIS does over Bluetooth (tested, docs/protocol.md): play / pause, previous / next
-// clip. Without the play-all flag it stops at the end of each clip; with it, at the end of the
-// card. It ignores its loop flag, so looping is done here, when the camera stops by itself:
-//   LOOP CLIP: back to the start of this clip. "Previous" goes to the start of the clip before
-//              (or, on the first clip, of this one), so: previous, and then next unless the
-//              timecode shows we're already at this clip's start.
-//   LOOP ALL:  plays with the play-all flag; at the end of the card, previous until the timecode
-//              stops changing (the first clip), then play.
-// The camera shows a frame of wherever each step lands, so a loop has a brief flash.
+// clip. Playing, it runs on through every clip and stops at the end of the card, whatever the
+// loop and play-all flags say. So looping is done here, from the timecode (the clip's own):
+//   LOOP CLIP: a jump in the timecode while playing is the next clip starting: "previous" (which
+//              goes to the start of the clip before) brings it back to this clip's start. On the
+//              last clip the camera stops at the end of the card: previous and next together.
+//   LOOP ALL:  at the end of the card, previous until the timecode stops changing (the first
+//              clip), then play.
+// Each step lands on the start of a clip and checks it against the start of the clip being
+// looped, stepping again if it's wrong. The camera shows a frame of wherever it passes through,
+// so a loop has a brief flash.
 enum { PB_PREV, PB_PLAY, PB_NEXT, PB_LOOP, PB_NBTN };
 enum { LOOP_OFF, LOOP_CLIP, LOOP_ALL };
-enum { LS_NONE, LS_PREV, LS_NEXT, LS_REWIND };             // loop steps in progress
+enum { LS_NONE, LS_SEEK, LS_REWIND };                      // loop steps in progress
 #define ICON_SKIP_BACK  "\xEE\xB5\x88"   // player-skip-back     U+ED48
 #define ICON_PLAY       "\xEE\xB5\x86"   // player-play          U+ED46
 #define ICON_PAUSE      "\xEE\xB5\x85"   // player-pause         U+ED45
@@ -1558,31 +1560,43 @@ enum { LS_NONE, LS_PREV, LS_NEXT, LS_REWIND };             // loop steps in prog
 #define ICON_REPEAT_OFF "\xEF\x86\x8E"   // repeat-off           U+F18E
 #define ICON_REPEAT_1   "\xEE\xAD\xB1"   // repeat-once          U+EB71
 #define ICON_REPEAT     "\xEE\xAD\xB2"   // repeat               U+EB72
+#ifdef ESP_PLATFORM
+#define PB_LOG(...) ESP_LOGI("playback", __VA_ARGS__)
+#else
+#define PB_LOG(...) (printf("[playback] " __VA_ARGS__), printf("\n"))
+#endif
 static lv_obj_t *s_pb, *s_pb_tc[11], *s_pb_state, *s_pb_btn[PB_NBTN], *s_pb_icon[PB_NBTN], *s_pb_loop_lbl;
 static int s_pb_mode_seen = -1;           // transport mode last tick
 static uint32_t s_pb_opened;              // when we asked for playback (closing waits for the camera)
 static int s_pb_want;                     // speed we asked for (0 = paused)
 static int s_pb_loop = LOOP_OFF;
-static int s_pb_ls;                       // LS_*
+static int s_pb_ls, s_pb_tries;           // LS_*, and steps taken by this seek
 static int32_t s_pb_last_f = -1;          // timecode last seen, and when it last changed
 static uint32_t s_pb_last_move, s_pb_step_ms, s_pb_play_ms;
 static int32_t s_pb_clip_start = -1;      // timecode at the start of the clip being played
+static int32_t s_pb_target = -1;          // a seek's goal: the start of the clip being looped
 static bool s_pb_need_start;              // just arrived at a clip: note where it starts
+static int s_pb_clips_run;                // clip changes seen while playing (for LOOP ALL's rewind)
 
 static bool pb_shown(void) { return s_pb && !lv_obj_has_flag(s_pb, LV_OBJ_FLAG_HIDDEN); }
 
-static int32_t pb_frames(void)            // the camera's timecode as one number (-1 = none)
+static int pb_fps(void)                   // timecode frames a second
+{
+    return s_st.project_fps > 0 ? s_st.project_fps : 25;
+}
+
+static int32_t pb_frames(void)            // the camera's timecode in frames (-1 = none)
 {
     if (!s_st.tc_valid) return -1;
-    return ((s_st.tc_h * 60 + s_st.tc_m) * 60 + s_st.tc_s) * 100 + s_st.tc_f;
+    return ((s_st.tc_h * 60 + s_st.tc_m) * 60 + s_st.tc_s) * pb_fps() + s_st.tc_f;
 }
 
 static void pb_speed(int sp)               // ask for a speed (0 = pause)
 {
     s_pb_want = sp;
     s_pb_play_ms = lv_tick_get();
+    s_pb_clips_run = 0;
     camera_playback(1, sp, s_pb_loop == LOOP_ALL ? 2 : 0);
-    if (sp && s_pb_loop == LOOP_ALL) s_pb_clip_start = -1;   // it may run on into other clips
 }
 
 static void pb_step(bool next)             // to the start of the next / previous clip
@@ -1645,14 +1659,13 @@ static void pb_btn_cb(lv_event_t *e)
 {
     const int k = (int)(intptr_t)lv_event_get_user_data(e);
     const bool busy = s_pb_ls != LS_NONE;
-    s_pb_ls = LS_NONE;
+    if (k != PB_LOOP) s_pb_ls = LS_NONE;                    // (changing the loop lets a loop finish)
     switch (k) {
     case PB_PREV: pb_step(false); s_pb_want = 0; break;
     case PB_NEXT: pb_step(true);  s_pb_want = 0; break;
     case PB_PLAY: pb_speed(s_st.transport_speed != 0 || busy ? 0 : 1); break;
     case PB_LOOP:
         s_pb_loop = (s_pb_loop + 1) % 3;
-        if (s_pb_want > 0) pb_speed(s_pb_want);      // playing: send the play-all flag as it now is
         break;
     }
     pb_render();
@@ -1665,43 +1678,89 @@ static void pb_exit_cb(lv_event_t *e)
     pb_close();
 }
 
-static bool pb_near(int32_t a, int32_t b) { return a >= 0 && b >= 0 && (a > b ? a - b : b - a) <= 2; }
+// Two timecodes within half a second: the first timecode seen after a jump (a rough clip start)
+// still matches the exact one a step lands on, and clips are much longer than that.
+static bool pb_near(int32_t a, int32_t b) { return a >= 0 && b >= 0 && labs((long)(a - b)) <= pb_fps() / 2; }
+
+static void pb_seek(int32_t target)        // step until at the start of the clip that starts here
+{
+    s_pb_ls = LS_SEEK;
+    s_pb_tries = 0;
+    s_pb_target = target;
+}
 
 // Loop, driven by what the camera reports.
 static void pb_loop_tick(uint32_t now)
 {
     if (s_st.transport_mode != 1) { s_pb_ls = LS_NONE; return; }
     const int32_t f = pb_frames();
-    if (f != s_pb_last_f) { s_pb_last_f = f; s_pb_last_move = now; }
+    bool jumped = false;
+    if (f != s_pb_last_f) {
+        // Playing forwards, the timecode goes up by about the time since it last changed. Going
+        // back, or on by half a second more than that, is the next clip starting.
+        if (f >= 0 && s_pb_last_f >= 0 && s_pb_want > 0 && s_pb_ls == LS_NONE && now - s_pb_step_ms > 500) {
+            const int32_t expect = (int32_t)((now - s_pb_last_move) * (uint32_t)pb_fps() * (uint32_t)s_pb_want / 1000);
+            jumped = f < s_pb_last_f || f - s_pb_last_f > expect + pb_fps() / 2 + 2;
+        }
+        s_pb_last_f = f;
+        s_pb_last_move = now;
+    }
     const bool moved = s_pb_last_move > s_pb_step_ms;        // since the last step
     const bool settled = now - s_pb_step_ms > (moved ? 250 : 800);
     if (s_pb_need_start && settled) { s_pb_clip_start = f; s_pb_need_start = false; }
 
     switch (s_pb_ls) {
-    case LS_PREV:                                            // loop clip, step 1
+    case LS_SEEK:                                            // loop clip: to the clip's start
         if (!settled) return;
-        if (pb_near(f, s_pb_clip_start) || !moved) { s_pb_ls = LS_NONE; pb_speed(1); }   // first clip: here already
-        else { s_pb_ls = LS_NEXT; pb_step(true); }
-        return;
-    case LS_NEXT:                                            // loop clip, step 2
-        if (!settled) return;
-        s_pb_ls = LS_NONE;
-        pb_speed(1);
+        if (s_pb_target < 0 || pb_near(f, s_pb_target) || s_pb_tries >= 4) {
+            if (s_pb_target >= 0 && !pb_near(f, s_pb_target)) PB_LOG("couldn't find the clip's start: playing from here");
+            s_pb_ls = LS_NONE;
+            pb_speed(1);
+            return;
+        }
+        s_pb_tries++;
+        PB_LOG("landed on the wrong clip: %s", f < s_pb_target ? "next" : "previous");
+        pb_step(f < s_pb_target);
         return;
     case LS_REWIND:                                          // loop all: back to the first clip
         if (!settled) return;
-        if (moved) pb_step(false);
+        if (moved && s_pb_tries++ < 50) pb_step(false);
         else { s_pb_ls = LS_NONE; pb_speed(1); }
         return;
     }
-    // Playing, and the camera stopped by itself: the end of the clip (or, playing all, the card).
-    if (s_pb_loop == LOOP_OFF || s_pb_want <= 0 || s_st.transport_speed != 0 || now - s_pb_last_move < 500 ||
-        now - s_pb_play_ms < 1000) return;                   // (give the camera time to start)
-    const bool keep = !s_pb_need_start;                      // this clip's start is known
-    if (s_pb_loop == LOOP_ALL) { s_pb_ls = LS_REWIND; pb_step(false); }
-    else { s_pb_ls = LS_PREV; pb_step(false); }
+    if (s_pb_want <= 0) return;
+
+    if (jumped) {                                            // playing on into the next clip
+        s_pb_clips_run++;
+        if (s_pb_loop == LOOP_CLIP) {
+            PB_LOG("next clip started: previous, back to this one");
+            pb_step(false);
+            pb_seek(s_pb_clip_start);
+        } else {
+            s_pb_clip_start = f;
+        }
+        return;
+    }
+
+    // Stopped by itself: the end of the card (reported as speed 0, or the timecode stuck for 2 s).
+    const uint32_t still = now - s_pb_last_move;
+    if (now - s_pb_play_ms < 1200 || !(still > 2000 || (still > 500 && s_st.transport_speed == 0))) return;
+    if (s_pb_loop == LOOP_OFF) { s_pb_want = 0; return; }
+    if (s_pb_loop == LOOP_CLIP) {
+        // The last clip. Previous goes to the clip before (or, if it's the only clip, its own
+        // start, and then next does nothing).
+        PB_LOG("end of the card: previous and next, back to this clip");
+        pb_step(false);
+        pb_step(true);
+        pb_seek(s_pb_clip_start);
+    } else {
+        PB_LOG("end of the card: back to the first clip (%d clip changes seen)", s_pb_clips_run);
+        for (int i = 0; i < s_pb_clips_run && i < 20; i++) pb_step(false);
+        if (!s_pb_clips_run) pb_step(false);
+        s_pb_ls = LS_REWIND;
+        s_pb_tries = 0;
+    }
     s_pb_need_start = false;                                 // keep the clip's start for the check
-    if (!keep) s_pb_clip_start = -1;
 }
 
 static void pb_tick(uint32_t now)

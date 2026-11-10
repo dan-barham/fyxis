@@ -34,10 +34,12 @@
   clip) and opens the playback screen; it also opens by itself when you press Play on the camera.
   The clip plays on the camera's screen or its video output, not on this one.
   - **Previous / play-pause / next:** previous and next go to the start of a clip, paused.
-  - **Loop** (tap to cycle): **Off** stops at the end of the clip; **Clip** plays the same clip
-    again; **All** plays every clip in turn and then starts again from the first. The camera ignores
-    its own loop setting over Bluetooth, so the board does it by stepping between clips, and the
-    camera's screen shows a brief flash of another frame at each loop.
+  - **Loop** (tap to cycle): **Off** plays on through the clips and stops at the end of the card;
+    **Clip** plays the same clip again; **All** plays every clip in turn and then starts again from
+    the first. The camera can't loop by itself over Bluetooth, so the board watches the timecode: a
+    jump means the next clip has started, and it steps back. The camera's screen shows a brief flash
+    of another clip at each loop. Clip loop needs the timecode to jump between clips (time of day or
+    free run); with record run timecode, clips follow on with no jump, and only the last clip loops.
   - **Exit playback** takes the camera out of playback. The REC button rolls a new clip straight
     from playback and closes the screen.
   - The play button is dimmed while recording or not connected; while editing is locked it only

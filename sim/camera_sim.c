@@ -266,17 +266,29 @@ static void *demo_console(void *arg)
     return NULL;
 }
 
-// Demo playback: two clips on a timeline (24 fps), played at the requested speed, stopping at
-// either end of the card; clip steps go to the start of the previous / next clip, paused. Modelled
-// on what the PYXIS did in the Bluetooth tests.
-static const struct { int len, tc; } DEMO_CLIPS[] = { { 20 * 24, 10 * 3600 * 24 }, { 15 * 24, (10 * 3600 + 300) * 24 } };
-#define DEMO_NCLIPS 2
+// Demo playback: three clips on a timeline (24 fps, time-of-day timecode, so the timecode jumps
+// between clips), played at the requested speed through every clip, stopping at either end of the
+// card whatever the loop / play-all flags say; clip steps go to the start of the previous / next
+// clip, paused. Modelled on what the PYXIS did in the Bluetooth tests.
+static const struct { int len, tc; } DEMO_CLIPS[] = {
+    { 20 * 24, 10 * 3600 * 24 }, { 15 * 24, (10 * 3600 + 300) * 24 }, { 10 * 24, (10 * 3600 + 600) * 24 },
+};
+#define DEMO_NCLIPS 3
 static volatile int s_pb_pos = -1;          // frame on the timeline (-1 = not in playback yet)
-static volatile bool s_pb_all;              // play-all flag as last sent: on through every clip
 
-static int demo_clip_of(int pos) { return pos < DEMO_CLIPS[0].len ? 0 : 1; }
-static int demo_clip_start(int c) { return c ? DEMO_CLIPS[0].len : 0; }
-static int demo_total(void) { return DEMO_CLIPS[0].len + DEMO_CLIPS[1].len; }
+static int demo_clip_start(int c)
+{
+    int p = 0;
+    for (int i = 0; i < c; i++) p += DEMO_CLIPS[i].len;
+    return p;
+}
+static int demo_clip_of(int pos)
+{
+    int c = 0;
+    while (c + 1 < DEMO_NCLIPS && pos >= demo_clip_start(c + 1)) c++;
+    return c;
+}
+static int demo_total(void) { return demo_clip_start(DEMO_NCLIPS); }
 
 static void demo_report(int speed)
 {
@@ -308,7 +320,6 @@ static bool demo_playback_packet(const uint8_t *b, int len)
         return true;
     }
     if (b[5] == 1 && b[8] == 1 && s_pb_pos < 0) s_pb_pos = demo_clip_start(DEMO_NCLIPS - 1);   // opens on the last clip
-    if (b[5] == 1 && len >= 11) s_pb_all = (b[10] & 3) != 0;
     if (b[5] == 1 && b[8] != 1) s_pb_pos = -1;
     return false;
 }
@@ -326,10 +337,7 @@ static void *demo_clock(void *arg)
         camproto_get(&pst);
         if (pst.transport_mode == 1 && s_pb_pos >= 0) {            // playback: the clip's timecode
             int np = s_pb_pos + pst.transport_speed;
-            // Stop at an end of the card, or (without play-all) at an end of the clip.
-            const int c = demo_clip_of(s_pb_pos);
-            const int lo = s_pb_all ? 0 : demo_clip_start(c);
-            const int hi = s_pb_all ? demo_total() - 1 : demo_clip_start(c) + DEMO_CLIPS[c].len - 1;
+            const int lo = 0, hi = demo_total() - 1;             // stop at an end of the card
             if (np < lo || np > hi) {
                 np = np < lo ? lo : hi;
                 if (pst.transport_speed) demo_report(0);
