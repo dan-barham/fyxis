@@ -272,6 +272,7 @@ static void *demo_console(void *arg)
 static const struct { int len, tc; } DEMO_CLIPS[] = { { 20 * 24, 10 * 3600 * 24 }, { 15 * 24, (10 * 3600 + 300) * 24 } };
 #define DEMO_NCLIPS 2
 static volatile int s_pb_pos = -1;          // frame on the timeline (-1 = not in playback yet)
+static volatile bool s_pb_all;              // play-all flag as last sent: on through every clip
 
 static int demo_clip_of(int pos) { return pos < DEMO_CLIPS[0].len ? 0 : 1; }
 static int demo_clip_start(int c) { return c ? DEMO_CLIPS[0].len : 0; }
@@ -301,12 +302,13 @@ static bool demo_playback_packet(const uint8_t *b, int len)
     if (b[5] == 2) {                                      // clip step
         const int c = demo_clip_of(s_pb_pos < 0 ? 0 : s_pb_pos);
         const int to = b[8] ? (c + 1 < DEMO_NCLIPS ? c + 1 : c) : (c > 0 ? c - 1 : c);
-        if (to != c) s_pb_pos = demo_clip_start(to);
+        if (to != c || !b[8]) s_pb_pos = demo_clip_start(to);     // previous on the first clip: its start
         demo_report(0);
         printf("[demo] %s clip -> clip %d\n", b[8] ? "next" : "previous", to + 1);
         return true;
     }
     if (b[5] == 1 && b[8] == 1 && s_pb_pos < 0) s_pb_pos = demo_clip_start(DEMO_NCLIPS - 1);   // opens on the last clip
+    if (b[5] == 1 && len >= 11) s_pb_all = (b[10] & 3) != 0;
     if (b[5] == 1 && b[8] != 1) s_pb_pos = -1;
     return false;
 }
@@ -324,8 +326,12 @@ static void *demo_clock(void *arg)
         camproto_get(&pst);
         if (pst.transport_mode == 1 && s_pb_pos >= 0) {            // playback: the clip's timecode
             int np = s_pb_pos + pst.transport_speed;
-            if (np < 0 || np >= demo_total()) {                     // an end of the card: stop there
-                np = np < 0 ? 0 : demo_total() - 1;
+            // Stop at an end of the card, or (without play-all) at an end of the clip.
+            const int c = demo_clip_of(s_pb_pos);
+            const int lo = s_pb_all ? 0 : demo_clip_start(c);
+            const int hi = s_pb_all ? demo_total() - 1 : demo_clip_start(c) + DEMO_CLIPS[c].len - 1;
+            if (np < lo || np > hi) {
+                np = np < lo ? lo : hi;
                 if (pst.transport_speed) demo_report(0);
             }
             s_pb_pos = np;
@@ -436,12 +442,12 @@ static void send_logged(const char *what, const uint8_t *b, int len)
     if (len) send_to_camera(b, len);
 }
 
-void camera_playback(int mode, int speed)
+void camera_playback(int mode, int speed, int flags)
 {
     uint8_t b[32];
     char what[48];
-    snprintf(what, sizeof what, "playback mode %d speed %d", mode, speed);
-    send_logged(what, b, camproto_build_transport(mode, speed, 0, b));
+    snprintf(what, sizeof what, "playback mode %d speed %d%s", mode, speed, flags & 2 ? " (all clips)" : "");
+    send_logged(what, b, camproto_build_transport(mode, speed, flags, b));
 }
 
 void camera_playback_clip(int steps)

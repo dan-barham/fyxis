@@ -1,11 +1,12 @@
 # Changelog
 
 ## Unreleased
-- **Main screen:** **Presets** and **Playback** buttons, bottom left, instead of tapping the timecode
-  (presets). The white balance tile is laid out like the timecode tile: `5600K`, then `WB · TINT 0`.
-- **Playback screen:** big previous / play-pause / next / loop buttons and the clip's timecode.
-  Opens by itself when the camera plays back. Live view returns. Loop is done by the board (the
-  camera ignores its loop setting over Bluetooth).
+- **Main screen:** presets (bookmarks) and playback (play) buttons, bottom left, instead of tapping
+  the timecode for presets. The white balance tile is laid out like the timecode tile: `5600K`, then
+  `WB · TINT 0`.
+- **Playback screen:** big previous / play-pause / next buttons, loop off / clip / all, the clip's
+  timecode, and Exit playback. Opens by itself when the camera plays back. Looping is done by the
+  board (the camera ignores its loop setting over Bluetooth).
 - **REC from playback:** the REC key now always rolls a clip, even while the camera is playing one back.
 - **Exposure lock:** changing the frame rate, on the board or the camera, also moves the shutter angle
   so the shutter speed and brightness stay the same (24 → 48 fps at 180° becomes 360°). Settings ›

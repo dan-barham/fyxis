@@ -5,7 +5,7 @@
  FPS                  | SHUTTER              | EI
  5600K                | TC  01:00:12:07                    (two columns wide)
  WB · TINT 0          | 12K 17:9 / REC 00:01:23     1 23:49 | 2 EMPTY
- Presets | Playback   | slide to lock        | battery · settings
+ [presets] [play]     | slide to lock        | battery · settings
 ```
 
 - **Record:** the physical REC button on the case (wiring in [hardware.md](hardware.md)). It always
@@ -18,7 +18,7 @@
   under the timecode to the right (it turns amber); drag it back left to unlock. It stays as you leave
   it. Tapping a tile while locked nudges the knob as a reminder. The track is greyed out while
   recording or not connected.
-- **Presets:** the **Presets** button, bottom left. Six cards (A–F); **tap** one to apply its FPS, shutter angle, EI,
+- **Presets:** the bookmarks button, bottom left. Six cards (A–F); **tap** one to apply its FPS, shutter angle, EI,
   white balance and tint, **hold one for 1 s** to save what the camera is set to now. The card that
   matches the camera has a blue outline. Applying needs editing unlocked and not recording.
 - **Takes:** every take whose start the board saw is logged with its number, start timecode and
@@ -30,16 +30,18 @@
   PYXIS: if nothing appears with an EF / L-mount lens, the camera doesn't send it over Bluetooth.
 - **Night mode** (Settings › Display › Colours): everything in dim red on black, for dark sets. The
   record frame stays full red.
-- **Playback:** the **Playback** button, bottom left, puts the camera into playback (paused on the
-  last clip) and opens the playback screen; it also opens by itself when you press Play on the
-  camera. The clip plays on the camera's screen or its video output, not on this one.
+- **Playback:** the play button, bottom left, puts the camera into playback (paused on the last
+  clip) and opens the playback screen; it also opens by itself when you press Play on the camera.
+  The clip plays on the camera's screen or its video output, not on this one.
   - **Previous / play-pause / next:** previous and next go to the start of a clip, paused.
-  - **LOOP:** when the camera reaches the end of the card, the board steps back to the first clip and
-    plays again. (The camera ignores its own loop setting over Bluetooth, so the board does it.)
-  - **Live view** goes back to the live picture. The REC button rolls a new clip straight from
-    playback and closes the screen.
-  - The button is dimmed while recording or not connected; while editing is locked it only nudges
-    the lock knob. The camera only plays clips in its current recording format.
+  - **Loop** (tap to cycle): **Off** stops at the end of the clip; **Clip** plays the same clip
+    again; **All** plays every clip in turn and then starts again from the first. The camera ignores
+    its own loop setting over Bluetooth, so the board does it by stepping between clips, and the
+    camera's screen shows a brief flash of another frame at each loop.
+  - **Exit playback** takes the camera out of playback. The REC button rolls a new clip straight
+    from playback and closes the screen.
+  - The play button is dimmed while recording or not connected; while editing is locked it only
+    nudges the lock knob. The camera only plays clips in its current recording format.
 
   ![Playback screen](../media/screen-playback.png)
 - **Exposure lock** (Settings › Camera › Exposure lock › Keep speed): in angle mode the camera keeps

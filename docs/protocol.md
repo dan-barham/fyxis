@@ -31,9 +31,11 @@ Service `291D567A-6D75-11E6-8B77-86F30CA893D3`; settings arrive as notifications
   at 32×, were tried and weren't reliable enough, so they were dropped.)
 - **REC from playback:** the REC packet (mode 2, speed 0, flag bits 0–1 cleared) goes straight from
   playback to recording in one press.
-- **Ignored:** the loop and play-all flags (10.1 flag bits 0 and 1). With either or both set, the
-  camera still plays through every clip and stops at the end of the card. The camera sets bit 1
-  itself while it's playing and clears it when paused.
+- **Clip by clip, or all:** with neither flag bit 0 (loop) nor bit 1 (play all) set, the camera
+  stops at the end of each clip. With either set, it plays on through every clip and stops at the
+  end of the card. It never loops. The camera sets bit 1 itself while playing and clears it when
+  paused. FYXIS sends bit 1 for LOOP ALL and does the looping itself.
+- **Previous clip** goes to the start of the clip before; on the first clip, to its own start.
 - Playback only finds clips recorded in the camera's current format; right after formatting the
   card the camera answered play with "No clips in this format".
 - Clip lists, thumbnails and frame-accurate positioning exist only in the camera's REST API, over

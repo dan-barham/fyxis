@@ -4,7 +4,7 @@ idf_component_register(
         "../components/waveshare_rgb_lcd_port.c"
         "camera.c" "camproto.c" "bigsix.c" "board.c" "recbutton.c" "settings.c" "update.c"
         "font_label_14.c" "font_label_20.c" "font_tc_26.c" "font_icons_22.c" "font_icons_28.c"
-        "font_icons_48.c" "font_mid_36.c" "font_value_64.c" "font_big_132.c"
+        "font_icons_48.c" "font_icons_56.c" "font_mid_36.c" "font_value_64.c" "font_big_132.c"
     INCLUDE_DIRS
         "."
         "../components"

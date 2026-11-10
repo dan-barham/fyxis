@@ -8,7 +8,7 @@ LDLIBS  := $(SDL_LD) -lm -lpthread
 
 LV_SRC  := $(shell find $(LVGL)/src -name '*.c')
 LV_OBJ  := $(patsubst $(LVGL)/%.c,build/lvgl/%.o,$(LV_SRC))
-FONTS   := font_label_14 font_label_20 font_tc_26 font_icons_22 font_icons_28 font_icons_48 font_mid_36 font_value_64 font_big_132
+FONTS   := font_label_14 font_label_20 font_tc_26 font_icons_22 font_icons_28 font_icons_48 font_icons_56 font_mid_36 font_value_64 font_big_132
 APP_OBJ := build/app/main_sim.o build/app/camera_sim.o build/app/camproto.o build/app/bigsix.o build/app/recbutton.o build/app/settings.o build/app/update.o \
            $(FONTS:%=build/app/%.o)
 
