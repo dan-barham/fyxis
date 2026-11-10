@@ -865,7 +865,7 @@ static void fmt_hms(char *b, size_t n, uint32_t t)
 #define BG_MAX_MV   16800
 static int32_t s_bg[BG_POINTS];
 static int s_bg_n;
-static uint32_t s_bg_next, s_bg_ver, s_bg_drawn = UINT32_MAX;
+static uint32_t s_bg_next, s_bg_ver;
 
 static void bg_sample(uint32_t now)
 {
@@ -960,8 +960,17 @@ static const char *ACT_TEXT[NACTS] = { "Forget camera", "Reset settings", "Clear
 
 static lv_obj_t *s_upd_btn_lbl;                 // Update page: Start / Stop
 static lv_obj_t *s_take_col[3];                 // Takes page: number, start TC, length (one line each)
-static lv_obj_t *s_chart, *s_chart_lo, *s_chart_crit, *s_chart_left;
-static lv_chart_series_t *s_chart_ser;
+// Battery graph: Settings > Battery has a small one, the battery strip opens a full-screen one.
+// Both draw the same history (s_bg).
+typedef struct {
+    lv_obj_t *chart, *lo, *crit;               // the graph, and the low / critical lines
+    lv_obj_t *lo_lbl, *crit_lbl;               // their labels (full screen only)
+    lv_chart_series_t *ser;
+    uint32_t drawn;                            // s_bg_ver last drawn
+} bchart_t;
+static bchart_t s_set_chart, s_bv_chart;
+static lv_obj_t *s_chart_left;                 // Settings > Battery: time left
+static lv_obj_t *s_bv, *s_bv_head, *s_bv_sub;  // full-screen graph: reading, time left
 
 // Display timing, for About.
 static uint64_t s_refr_t0;
@@ -1000,26 +1009,75 @@ static void render_takes(void)
     for (int c = 0; c < 3; c++) set_text(s_take_col[c], col[c]);
 }
 
-static void render_chart(void)
+static void batt_left_text(char *b, size_t n)    // the time-left line
 {
-    const int h = lv_obj_get_height(s_chart);
-    lv_obj_set_y(s_chart_lo, lv_obj_get_y(s_chart) + chart_y(settings()->batt_low_mv, h));
-    lv_obj_set_y(s_chart_crit, lv_obj_get_y(s_chart) + chart_y(settings()->batt_crit_mv, h));
-    char b[48];
     if (s_batt_mins >= 0 && s_st.connected) {
         const int m = s_batt_mins;
-        if (m >= 60) snprintf(b, sizeof b, "Empty in about %dh %02dm", m / 60, m % 60);
-        else         snprintf(b, sizeof b, "Empty in about %dm", m);
+        if (m >= 60) snprintf(b, n, "Empty in about %dh %02dm", m / 60, m % 60);
+        else         snprintf(b, n, "Empty in about %dm", m);
     } else {
-        snprintf(b, sizeof b, s_bg_n ? "Time left: not enough data yet" : "Waiting for the camera");
+        snprintf(b, n, s_bg_n ? "Time left: not enough data yet" : "Waiting for the camera");
     }
-    set_text(s_chart_left, b);
-    if (s_bg_drawn == s_bg_ver) return;
-    s_bg_drawn = s_bg_ver;
+}
+
+static void bchart_render(bchart_t *c)
+{
+    if (!c->chart) return;
+    const int h = lv_obj_get_height(c->chart), y0 = lv_obj_get_y(c->chart);
+    const int lo = settings()->batt_low_mv, crit = settings()->batt_crit_mv;
+    lv_obj_set_y(c->lo, y0 + chart_y(lo, h));
+    lv_obj_set_y(c->crit, y0 + chart_y(crit, h));
+    if (c->lo_lbl) {
+        char b[24];
+        snprintf(b, sizeof b, "LOW %.1fV", lo / 1000.0);
+        set_text(c->lo_lbl, b);
+        snprintf(b, sizeof b, "CRITICAL %.1fV", crit / 1000.0);
+        set_text(c->crit_lbl, b);
+        lv_obj_set_y(c->lo_lbl, y0 + chart_y(lo, h) - 22);       // just above each line
+        lv_obj_set_y(c->crit_lbl, y0 + chart_y(crit, h) + 6);     // and the critical one below
+    }
+    if (c->drawn == s_bg_ver) return;
+    c->drawn = s_bg_ver;
     for (int i = 0; i < BG_POINTS; i++)
         if (i < BG_POINTS - s_bg_n) s_bg[i] = LV_CHART_POINT_NONE;
-    lv_chart_set_ext_y_array(s_chart, s_chart_ser, s_bg);
-    lv_chart_refresh(s_chart);
+    lv_chart_set_ext_y_array(c->chart, c->ser, s_bg);
+    lv_chart_refresh(c->chart);
+}
+
+static void render_chart(void)
+{
+    char b[48];
+    batt_left_text(b, sizeof b);
+    set_text(s_chart_left, b);
+    bchart_render(&s_set_chart);
+}
+
+static bool bv_shown(void) { return s_bv && !lv_obj_has_flag(s_bv, LV_OBJ_FLAG_HIDDEN); }
+
+static void bv_render(void)
+{
+    if (!bv_shown()) return;
+    const bool live = s_st.connected && s_batt_level != B_NONE;
+    char b[48];
+    if (s_batt_level == B_NONE) snprintf(b, sizeof b, "Battery");
+    else snprintf(b, sizeof b, "%.1fV " MIDDOT " %d%%", s_batt_v / 1000.0f, (int)(batt_pct(s_batt_v) + 0.5f));
+    set_text(s_bv_head, b);
+    set_text_color(s_bv_head, !live ? C_STALE : s_batt_level == B_CRIT ? C_RED : s_batt_level == B_LOW ? C_ORANGE : C_TEXT);
+    batt_left_text(b, sizeof b);
+    set_text(s_bv_sub, b);
+    bchart_render(&s_bv_chart);
+}
+
+static void bv_close(void) { if (s_bv) set_shown(s_bv, false); }
+
+static void bv_close_cb(lv_event_t *e) { (void)e; bv_close(); }
+
+static void bv_open_cb(lv_event_t *e)          // the battery strip
+{
+    (void)e;
+    if (s_st.recording) return;                 // the main screen stays up while rolling
+    lv_obj_remove_flag(s_bv, LV_OBJ_FLAG_HIDDEN);
+    bv_render();
 }
 
 static void settings_render(void)
@@ -1615,7 +1673,7 @@ static void tick_cb(lv_timer_t *t)
     track_recording(now);
     xl_tick(now);
     if ((s_st.recording || !s_st.connected || !unlocked()) && s_ed_tile >= 0) editor_close();
-    if (s_st.recording) { settings_close(); presets_close(); }
+    if (s_st.recording) { settings_close(); presets_close(); bv_close(); }
     if (s_st.seq != s_seq_drawn) {
         s_seq_drawn = s_st.seq;
         update_values();
@@ -1630,6 +1688,7 @@ static void tick_cb(lv_timer_t *t)
         batt_draw();
         settings_render();
         presets_render();
+        bv_render();
     }
 }
 
@@ -1836,6 +1895,91 @@ static void act_row(lv_obj_t *sec, int *y, const char *label, const char *desc, 
     lv_obj_set_style_text_color(s_act_lbl[which], C_RED, 0);
 }
 
+static void bchart_build(bchart_t *c, lv_obj_t *parent, int x, int y, int w, int h)
+{
+    c->chart = lv_chart_create(parent);
+    lv_obj_remove_style_all(c->chart);
+    lv_obj_set_size(c->chart, w, h);
+    lv_obj_set_pos(c->chart, x, y);
+    lv_obj_remove_flag(c->chart, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(c->chart, C_TILE, 0);
+    lv_obj_set_style_bg_opa(c->chart, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(c->chart, 10, 0);
+    lv_obj_set_style_line_width(c->chart, 3, LV_PART_ITEMS);
+    lv_obj_set_style_width(c->chart, 0, LV_PART_INDICATOR);     // no point markers
+    lv_obj_set_style_height(c->chart, 0, LV_PART_INDICATOR);
+    lv_chart_set_type(c->chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_div_line_count(c->chart, 0, 0);
+    lv_chart_set_point_count(c->chart, BG_POINTS);
+    lv_chart_set_axis_range(c->chart, LV_CHART_AXIS_PRIMARY_Y, BG_MIN_MV, BG_MAX_MV);
+    c->ser = lv_chart_add_series(c->chart, C_TEXT, LV_CHART_AXIS_PRIMARY_Y);
+    for (int i = 0; i < BG_POINTS; i++) if (i < BG_POINTS - s_bg_n) s_bg[i] = LV_CHART_POINT_NONE;
+    lv_chart_set_ext_y_array(c->chart, c->ser, s_bg);
+    c->drawn = UINT32_MAX;
+    c->lo = hairline(parent, w);
+    lv_obj_set_x(c->lo, x);
+    lv_obj_set_style_bg_color(c->lo, C_ORANGE, 0);
+    lv_obj_set_style_bg_opa(c->lo, LV_OPA_60, 0);
+    c->crit = hairline(parent, w);
+    lv_obj_set_x(c->crit, x);
+    lv_obj_set_style_bg_color(c->crit, C_RED, 0);
+    lv_obj_set_style_bg_opa(c->crit, LV_OPA_60, 0);
+    c->lo_lbl = c->crit_lbl = NULL;
+}
+
+// Full-screen battery graph (tap the battery strip): the reading, time left, and the last 2 hours
+// with a volt scale and the two warning levels. Tap anywhere to close.
+static void build_battery(lv_obj_t *scr, int W, int H)
+{
+    s_bv = box(scr);
+    lv_obj_set_size(s_bv, W, H);
+    lv_obj_set_style_bg_color(s_bv, C_BG, 0);
+    lv_obj_set_style_bg_opa(s_bv, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_bv, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_bv, bv_close_cb, LV_EVENT_CLICKED, NULL);
+    s_bv_head = text(s_bv, &font_mid_36, C_TEXT);
+    lv_obj_set_pos(s_bv_head, 28, 20);
+    s_bv_sub = text(s_bv, &font_label_20, C_TEXT2);
+    lv_obj_set_pos(s_bv_sub, 30, 66);
+    lv_obj_t *done = pill(s_bv, "Done", C_BLUE);
+    lv_obj_set_pos(done, W - 24 - 150, 20);
+    lv_obj_add_event_cb(done, bv_close_cb, LV_EVENT_CLICKED, NULL);
+
+    const int ax = 64, cx = 24 + ax, cy = 108, cw = W - 24 - cx, ch = H - cy - 40;
+    bchart_build(&s_bv_chart, s_bv, cx, cy, cw, ch);
+    for (int v = 12; v <= 16; v++) {                              // volt scale, with faint rules
+        const int ry = cy + chart_y(v * 1000, ch);
+        lv_obj_t *r = hairline(s_bv, cw);
+        lv_obj_set_pos(r, cx, ry);
+        lv_obj_t *l = text(s_bv, &font_label_14, C_TEXT2);
+        char b[8];
+        snprintf(b, sizeof b, "%dV", v);
+        lv_label_set_text(l, b);
+        lv_obj_set_width(l, ax - 12);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_pos(l, 24, ry - 9);
+    }
+    static const char *const WHEN[] = { "2 hours ago", "1 hour ago", "now" };
+    for (int i = 0; i < 3; i++) {                                 // time scale
+        lv_obj_t *l = text(s_bv, &font_label_14, C_TEXT2);
+        lv_label_set_text(l, WHEN[i]);
+        lv_obj_set_width(l, 160);
+        lv_obj_set_style_text_align(l, i == 0 ? LV_TEXT_ALIGN_LEFT : i == 1 ? LV_TEXT_ALIGN_CENTER : LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_pos(l, i == 0 ? cx : i == 1 ? cx + cw / 2 - 80 : cx + cw - 160, cy + ch + 12);
+    }
+    lv_obj_move_foreground(s_bv_chart.lo);                       // warning lines over the rules
+    lv_obj_move_foreground(s_bv_chart.crit);
+    s_bv_chart.lo_lbl = text(s_bv, &font_label_14, C_ORANGE);
+    s_bv_chart.crit_lbl = text(s_bv, &font_label_14, C_RED);
+    lv_obj_set_width(s_bv_chart.lo_lbl, 200);
+    lv_obj_set_width(s_bv_chart.crit_lbl, 200);
+    lv_obj_set_style_text_align(s_bv_chart.lo_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_align(s_bv_chart.crit_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_x(s_bv_chart.lo_lbl, cx + cw - 200 - 12);
+    lv_obj_set_x(s_bv_chart.crit_lbl, cx + cw - 200 - 12);
+    lv_obj_add_flag(s_bv, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void build_settings(lv_obj_t *scr, int W, int H)
 {
     s_set = box(scr);
@@ -1916,31 +2060,7 @@ static void build_settings(lv_obj_t *scr, int W, int H)
         lv_obj_set_style_text_align(s_chart_left, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_set_pos(s_chart_left, SET_W - 320, y + 12);
         const int cy = y + 36, ch = H - 24 - cy - 8;
-        s_chart = lv_chart_create(s_sec[PG_BATT]);
-        lv_obj_remove_style_all(s_chart);
-        lv_obj_set_size(s_chart, SET_W, ch);
-        lv_obj_set_pos(s_chart, 0, cy);
-        lv_obj_remove_flag(s_chart, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_style_bg_color(s_chart, C_TILE, 0);
-        lv_obj_set_style_bg_opa(s_chart, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(s_chart, 10, 0);
-        lv_obj_set_style_line_width(s_chart, 3, LV_PART_ITEMS);
-        lv_obj_set_style_width(s_chart, 0, LV_PART_INDICATOR);   // no point markers
-        lv_obj_set_style_height(s_chart, 0, LV_PART_INDICATOR);
-        lv_chart_set_type(s_chart, LV_CHART_TYPE_LINE);
-        lv_chart_set_div_line_count(s_chart, 0, 0);
-        lv_chart_set_point_count(s_chart, BG_POINTS);
-        lv_chart_set_axis_range(s_chart, LV_CHART_AXIS_PRIMARY_Y, BG_MIN_MV, BG_MAX_MV);
-        s_chart_ser = lv_chart_add_series(s_chart, C_TEXT, LV_CHART_AXIS_PRIMARY_Y);
-        for (int i = 0; i < BG_POINTS; i++) if (i < BG_POINTS - s_bg_n) s_bg[i] = LV_CHART_POINT_NONE;
-        lv_chart_set_ext_y_array(s_chart, s_chart_ser, s_bg);
-        s_bg_drawn = UINT32_MAX;
-        s_chart_lo = hairline(s_sec[PG_BATT], SET_W);
-        lv_obj_set_style_bg_color(s_chart_lo, C_ORANGE, 0);
-        lv_obj_set_style_bg_opa(s_chart_lo, LV_OPA_60, 0);
-        s_chart_crit = hairline(s_sec[PG_BATT], SET_W);
-        lv_obj_set_style_bg_color(s_chart_crit, C_RED, 0);
-        lv_obj_set_style_bg_opa(s_chart_crit, LV_OPA_60, 0);
+        bchart_build(&s_set_chart, s_sec[PG_BATT], 0, cy, SET_W, ch);
     }
 
     y = 0;                                                       // Camera
@@ -2233,13 +2353,16 @@ static void build(void)
         if (i) s_btn_set = l; else s_btn_pre = l;
     }
 
-    // ---- Battery strip ----
+    // ---- Battery strip (tap for the full-screen battery graph) ----
     s_bat = box(scr);
     lv_obj_set_size(s_bat, tw, LOCK_H);
     lv_obj_set_pos(s_bat, x3, H - MARGIN - LOCK_H);
     lv_obj_set_style_bg_color(s_bat, C_TILE, 0);
     lv_obj_set_style_bg_opa(s_bat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(s_bat, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_bat, C_TILE_PR, LV_STATE_PRESSED);
+    lv_obj_add_flag(s_bat, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_bat, bv_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *brow = box(s_bat);                                  // icon and reading, centred
     lv_obj_set_size(brow, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(brow, LV_FLEX_FLOW_ROW);
@@ -2354,6 +2477,7 @@ static void build(void)
 
     build_presets(scr, W, H);
     build_settings(scr, W, H);
+    build_battery(scr, W, H);
 
     // ---- PIN overlay: heading and digits on the left, round keypad on the right ----
     s_pin = box(scr);

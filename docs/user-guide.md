@@ -55,7 +55,7 @@
   empty slot. Card time turns red under 5 minutes; a full card shows **FULL**. Because the camera
   reports an empty slot as 0 time left, a slot counts as holding a card only if its transport flag is
   set or it reports time left (and hasn't been ejected since).
-- **Battery strip** (bottom right): the voltage at the camera's 2-pin LEMO (or
+- **Battery strip** (bottom right; tap it for a full-screen graph of the last 2 hours, below): the voltage at the camera's 2-pin LEMO (or
   an estimated percentage) and, once there's 3 minutes of history, an estimate of time left
   (`15.3V · 1h 20m`). The Tilta plate passes the V-mount straight through, so voltage tracks charge;
   it's mapped through a lithium-ion curve anchored on two measured points (15.3 V = 79 %,
@@ -65,6 +65,11 @@
     screen gets a flashing amber frame; while recording, the red frame alternates red and amber.
   - Both levels are in Settings › Battery. Different packs sag differently, so set them after a few
     real run-downs.
+  - **The graph** shows the voltage and percentage, the time left, and the last 2 hours against a
+    volt scale, with the low and critical levels marked. Tap anywhere (or Done) to close it. It
+    doesn't open while recording, and closes if recording starts.
+
+  ![Battery graph](../media/screen-battery-graph.png)
 - **FPS editor:** changes the recording frame rate and never touches the project rate.
   - − / + one frame at a time.
   - Quick chips: **OFF · 30 · 36 · 48 · 50 · 60 · 72 · 96 · 120** (OFF = back to the project rate).

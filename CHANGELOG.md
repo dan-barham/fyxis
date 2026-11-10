@@ -4,6 +4,8 @@
 - **Main screen:** Presets (bookmarks) and Settings (gear) buttons, bottom left, the same size,
   instead of tapping the timecode for presets and the battery strip for Settings. The white balance
   tile is laid out like the timecode tile: `5600K`, then `WB · TINT 0`.
+- **Battery graph:** tap the battery strip for a full-screen graph of the last 2 hours, with a volt
+  scale, the low and critical levels, and the time left.
 - **REC from playback:** the REC key now always rolls a clip, even while the camera is playing one back
   (from its own buttons).
 - **Exposure lock:** changing the frame rate, on the board or the camera, also moves the shutter angle
