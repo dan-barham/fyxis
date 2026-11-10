@@ -67,6 +67,16 @@ static void *reader(void *arg)
                 fflush(stdout);
                 last_mv = st.batt_mv;
             }
+            static char last_tr[96];                 // log transport changes (playback testing)
+            char tr[96];
+            snprintf(tr, sizeof tr, "mode %d (%s), speed %d, flags 0x%02x", st.transport_mode,
+                     st.transport_mode == 2 ? "recording" : st.transport_mode == 1 ? "playback" : "preview",
+                     st.transport_speed, st.transport_flags);
+            if (strcmp(tr, last_tr)) {
+                printf("[transport] %s   tc %02d:%02d:%02d:%02d\n", tr, st.tc_h, st.tc_m, st.tc_s, st.tc_f);
+                fflush(stdout);
+                strcpy(last_tr, tr);
+            }
             static char last_media[96];              // log card-slot changes (to check empty / full)
             char m[96];
             snprintf(m, sizeof m, "slots %d: %d / %d s, flags 0x%02x, card in %d/%d, medium %d / %d", st.slot_n,
@@ -107,6 +117,63 @@ static void *reader(void *arg)
 }
 
 static void stop_helper(void) { if (s_helper_pid > 0) kill(s_helper_pid, SIGTERM); }
+
+// ---------- live: playback test keys ----------
+// Checks which of Blackmagic's playback commands the camera accepts over Bluetooth. Type a key and
+// Return; the [transport] lines show what the camera reports back.
+static void live_help(void)
+{
+    printf("\nPlayback test keys (type a key, then Return):\n"
+           "  p  play 1x            s  pause              x  stop playback (preview)\n"
+           "  f  play 2x forward    b  play 1x backwards  l  play 1x with loop\n"
+           "  n  next clip          v  previous clip\n"
+           "  .  next frame         ,  previous frame\n"
+           "  r  REC (what the REC button sends: should roll a clip, even from playback)\n"
+           "  t  show transport state and timecode      h  this help\n\n");
+    fflush(stdout);
+}
+
+static void live_send(const char *what, const uint8_t *b, int len)
+{
+    printf("[test] %s: ", what);
+    if (!len) { printf("nothing sent (not online, or recording)\n"); fflush(stdout); return; }
+    for (int i = 0; i < len; i++) printf("%02x", b[i]);
+    printf("\n");
+    fflush(stdout);
+    send_to_camera(b, len);
+}
+
+static void *live_console(void *arg)
+{
+    (void)arg;
+    char line[64];
+    live_help();
+    while (fgets(line, sizeof line, stdin)) {
+        uint8_t b[32];
+        cam_state_t st;
+        camproto_get(&st);
+        switch (line[0]) {
+        case 'p': live_send("play 1x", b, camproto_build_transport(1, 1, false, b)); break;
+        case 's': live_send("pause", b, camproto_build_transport(1, 0, false, b)); break;
+        case 'x': live_send("stop playback", b, camproto_build_transport(0, 0, false, b)); break;
+        case 'f': live_send("play 2x", b, camproto_build_transport(1, 2, false, b)); break;
+        case 'b': live_send("play backwards", b, camproto_build_transport(1, -1, false, b)); break;
+        case 'l': live_send("play with loop", b, camproto_build_transport(1, 1, true, b)); break;
+        case 'n': live_send("next clip", b, camproto_build_playback_step(false, 1, b)); break;
+        case 'v': live_send("previous clip", b, camproto_build_playback_step(false, -1, b)); break;
+        case '.': live_send("next frame", b, camproto_build_playback_step(true, 1, b)); break;
+        case ',': live_send("previous frame", b, camproto_build_playback_step(true, -1, b)); break;
+        case 'r': camera_record(true); break;
+        case 't':
+            printf("[test] mode %d, speed %d, flags 0x%02x, recording %d, tc %02d:%02d:%02d:%02d\n", st.transport_mode,
+                   st.transport_speed, st.transport_flags, st.recording, st.tc_h, st.tc_m, st.tc_s, st.tc_f);
+            fflush(stdout);
+            break;
+        case 'h': live_help(); break;
+        }
+    }
+    return NULL;
+}
 
 static void start_helper(void)
 {
@@ -250,7 +317,12 @@ void camera_start(void)
 {
     camproto_set_link(LINK_SEARCHING, false);
     if (g_demo) demo_start();
-    else start_helper();
+    else {
+        start_helper();
+        pthread_t t;
+        pthread_create(&t, NULL, live_console, NULL);
+        pthread_detach(t);
+    }
 }
 
 void camera_get(cam_state_t *out) { camproto_get(out); }

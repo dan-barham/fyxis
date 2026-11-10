@@ -8,7 +8,8 @@
               | slide to lock        | battery · settings
 ```
 
-- **Record:** the physical REC button on the case (wiring in [hardware.md](hardware.md)).
+- **Record:** the physical REC button on the case (wiring in [hardware.md](hardware.md)). It always
+  rolls a clip, even while the camera is playing one back.
   While recording: a red frame round the whole screen (nothing moves), editing is blocked, and the
   line under the timecode shows **● REC** and how long the take has been rolling. The frame appears
   dimmed the instant the button is pressed and goes solid when the camera confirms, so a press always
@@ -29,6 +30,15 @@
   PYXIS: if nothing appears with an EF / L-mount lens, the camera doesn't send it over Bluetooth.
 - **Night mode** (Settings › Display › Colours): everything in dim red on black, for dark sets. The
   record frame stays full red.
+- **Exposure lock** (Settings › Camera › Exposure lock › Keep speed): in angle mode the camera keeps
+  the shutter *angle* when the frame rate changes, so the shutter *speed* and the brightness change
+  with it (24 → 48 fps at 180° is 1/48 → 1/96, a stop darker). With the lock on, the board answers
+  every frame-rate change, made on the board or on the camera, with the angle that keeps the speed:
+  24 → 48 fps at 180° becomes 360°. Changing the shutter sets a new speed to keep. The shutter tile
+  shows `1/48 · LOCKED`. The angle can't go past 360°: then it stays there and the tile turns amber
+  with how far short it is (`1/60 · −0.3 STOP`), and going back to a lower rate restores the angle.
+  While + or − is held, it waits until the rate stops changing. Presets apply exactly as saved, and
+  their shutter speed becomes the one kept. Off by default.
 - **Sleep:** after a minute with no camera link (Settings › Display › Sleep: 1 min, 5 min or Never), the
   screen goes black and its backlight off, the panel is refreshed at a quarter of its normal rate, and
   Bluetooth listens for the camera about a tenth of the time instead of all the time. It wakes by
@@ -84,7 +94,7 @@
 | Battery | Low warning / Critical | 11.5–16.5 V in 0.1 V steps (critical stays at least 0.2 V below low) |
 | | Show | Volts, Percent |
 | | (graph) | the last 2 hours of battery voltage with the two warning levels, and the time-left estimate |
-| Camera | | camera name, signal and lens; white balance step; **Forget camera** |
+| Camera | | camera name, signal and lens; white balance step; **Exposure lock** (Off, Keep speed); **Forget camera** |
 | Takes | | the take log (newest first) and **Clear list** |
 | Update | | **Wi-Fi update** (see below) |
 | About | | firmware, Bluetooth link timing, timecode updates per second, display frame rate and time per frame, free memory, time running; **Reset settings** |

@@ -38,5 +38,12 @@ int camproto_build_wb(int kelvin, int tint, uint8_t out[32]);
 // Shutter speed (1/x) the given angle gives at the current recording frame rate.
 int camproto_speed_for_angle(const cam_state_t *st, int angle_x100);
 
-// Packet to start / stop recording. Returns 0 when not live.
+// Packet to start / stop recording. Returns 0 when not live. Starting clears the playback speed
+// and loop flags, so it rolls a clip straight from playback.
 int camproto_build_record(bool start, uint8_t out[32]);
+
+// Playback (untested on the PYXIS). Transport: mode 0 preview / 1 play, speed (0 pause, 1 normal,
+// >1 faster, <0 backwards), loop. Step: previous / next clip (frame = false) or frame, by steps.
+// Return 0 when not live or recording.
+int camproto_build_transport(int mode, int speed, bool loop, uint8_t out[32]);
+int camproto_build_playback_step(bool frame, int steps, uint8_t out[32]);

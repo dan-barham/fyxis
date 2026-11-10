@@ -15,7 +15,11 @@
 //        as the frame rate rose 23.98 -> 29.97 -> 48; Blackmagic's REST API documents seconds)
 //   10.1 transport mode      int8[5]   {mode, speed, flags, slot 1 medium, slot 2 medium}
 //        mode: 0 preview, 1 play, 2 record. Recording is started/stopped by writing it back
-//        with only the mode changed.
+//        with the mode changed (and, to start, the playback speed and loop flags cleared, so REC
+//        rolls a clip straight from playback).
+//        speed: playback, 0 paused, 1 normal, >1 faster, <0 backwards. flags: bit0 loop, bit1 play all.
+//   10.2 playback control    int8[2]   {0 clip / 1 frame, steps (-1 previous, +1 next)}
+//        (10.1 play and 10.2 are from Blackmagic's protocol document; not yet checked on the PYXIS)
 // Timecode characteristic: 32-bit BCD HH:MM:SS:FF (09:12:53:10 = 0x09125310).
 
 #include <string.h>
@@ -169,6 +173,8 @@ static void handle_param(int cat, int par, int type, const uint8_t *d, int len)
     }
     else if (cat == 10 && par == 1 && n >= 1) {
         s_st.recording = (v[0] == 2);
+        s_st.transport_mode = v[0];
+        s_st.transport_speed = n >= 2 ? v[1] : 0;
         for (int i = 0; i < 5; i++) s_transport[i] = i < n ? v[i] : 0;
         s_have_transport = (n >= 5);
         if (n >= 3) {                                  // flags: bit 5 = slot 1 active, bit 6 = slot 2
@@ -375,6 +381,8 @@ int camproto_build_record(bool start, uint8_t out[32])
     const bool full = s_have_transport;
     camproto_unlock();
     v[0] = start ? 2 : 0;
+    v[1] = 0;                                          // no playback speed
+    v[2] &= ~3;                                        // nor loop / play all: REC rolls a clip, even from playback
     const int len = camproto_build(10, 1, 1, v, full ? 5 : 1, out);
     if (len) {                                         // lets the UI show the press straight away
         camproto_lock();
@@ -384,6 +392,31 @@ int camproto_build_record(bool start, uint8_t out[32])
         camproto_unlock();
     }
     return len;
+}
+
+int camproto_build_transport(int mode, int speed, bool loop, uint8_t out[32])
+{
+    cam_state_t st;
+    camproto_get(&st);
+    if (!st.connected || st.recording || mode < 0 || mode > 1) return 0;   // never records: that's REC's job
+    camproto_lock();
+    int32_t v[5];
+    for (int i = 0; i < 5; i++) v[i] = s_transport[i];
+    const bool full = s_have_transport;
+    camproto_unlock();
+    v[0] = mode;
+    v[1] = clampi(speed, -128, 127);
+    v[2] = (v[2] & ~1) | (loop ? 1 : 0);
+    return camproto_build(10, 1, 1, v, full ? 5 : 2, out);
+}
+
+int camproto_build_playback_step(bool frame, int steps, uint8_t out[32])
+{
+    cam_state_t st;
+    camproto_get(&st);
+    if (!st.connected || st.recording || !steps) return 0;
+    int32_t v[2] = { frame ? 1 : 0, clampi(steps, -128, 127) };
+    return camproto_build(10, 2, 1, v, 2, out);
 }
 
 int camproto_build_shutter_angle(int angle_x100, uint8_t out[32])

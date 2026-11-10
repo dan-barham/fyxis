@@ -37,6 +37,8 @@ typedef struct {
     int  slot_active;        // slot being recorded to: 0 or 1 (transport flags), -1 = unknown
     int  slot_type[2];       // transport storage-medium fields, logged for checking
     int  transport_flags;    // raw, logged for checking
+    int  transport_mode;     // 10.1: 0 preview, 1 playback, 2 recording
+    int  transport_speed;    // 10.1 playback speed: 0 paused, 1 normal, >1 faster, <0 backwards
     int  batt_mv;            // voltage at the camera's DC input, mV (0 = not reported yet)
     int  batt_pct;           // 9.0 second field, if sent (-1 = not sent); logged, not relied on
     int  batt_flags;         // 9.0 third field, if sent

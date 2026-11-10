@@ -26,6 +26,7 @@ typedef struct {
     uint8_t  night;            // 1 = all-red night palette
     // --- added in 2.2 ---
     uint8_t  sleep;            // SLEEP_*: screen off and slow Bluetooth scan after this long with no camera
+    uint8_t  exp_lock;         // 1 = a frame-rate change moves the shutter angle to keep the shutter speed
 } settings_t;
 
 // Presets: a saved FPS / shutter / EI / WB + tint, applied in one tap.

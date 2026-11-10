@@ -22,6 +22,7 @@ it's useful to someone else.
 - Six presets (FPS, shutter, EI, white balance and tint together), a take log, a red night mode, a
   battery graph, and firmware updates over Wi-Fi.
 - Shows aperture and focal length if the camera reports them.
+- Exposure lock: change the frame rate and the shutter angle follows, so the brightness doesn't change.
 - Goes to sleep (screen off, slow Bluetooth scan) when there's no camera, and wakes when it comes back.
 
 | | | |

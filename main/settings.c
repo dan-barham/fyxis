@@ -16,6 +16,7 @@ static const settings_t DEFAULTS = {
     .wb_step = 100,
     .night = 0,
     .sleep = SLEEP_1MIN,
+    .exp_lock = 0,
 };
 
 static settings_t s_cfg;
@@ -36,6 +37,7 @@ static void sanitise(settings_t *c)
     c->start_locked = !!c->start_locked;
     c->night = !!c->night;
     if (c->sleep > SLEEP_NEVER) c->sleep = DEFAULTS.sleep;
+    c->exp_lock = !!c->exp_lock;
     if (c->batt_low_mv < 10000 || c->batt_low_mv > 17000) c->batt_low_mv = DEFAULTS.batt_low_mv;
     if (c->batt_crit_mv < 10000 || c->batt_crit_mv >= c->batt_low_mv) c->batt_crit_mv = c->batt_low_mv - 800;
     if (c->wb_step != 50 && c->wb_step != 100 && c->wb_step != 200) c->wb_step = DEFAULTS.wb_step;

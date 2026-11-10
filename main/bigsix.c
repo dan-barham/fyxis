@@ -21,6 +21,8 @@
 //    values stay in grey and the tally is suppressed.
 //  - Tap the battery strip (bottom right) for Settings.
 //  - First connection: the camera shows a 6-digit PIN; a keypad appears here to enter it.
+//  - Exposure lock (Settings > Camera): a frame-rate change also moves the shutter angle, so the
+//    shutter speed, and so the brightness, stays the same. The shutter tile shows LOCKED.
 //  - Sleep: with no camera for a minute (Settings > Display), the screen goes black and its
 //    backlight off, and Bluetooth scans slowly. The camera, a touch or the REC button wakes it.
 //
@@ -29,6 +31,7 @@
 //
 // Typeface: Inter (SIL Open Font License), rendered at 14 / 20 / 26 / 36 / 64 / 132 px.
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,6 +152,7 @@ static lv_obj_t *s_pin, *s_pin_digits;
 static char s_pin_buf[7];
 
 static cam_state_t s_st;
+static float s_xl_short;          // exposure lock: stops darker than the locked speed (angle at its limit)
 static uint32_t s_seq_drawn = UINT32_MAX;
 static bool s_unlocked = true;    // editing allowed (until the user slides it locked)
 
@@ -285,6 +289,10 @@ static void fmt_value(int t, char *v, size_t vn, char *sub, size_t sn)
         // The PYXIS sends only the angle in angle mode: derive the speed.
         int spd = speed_for_angle(st, a);
         if (spd > 0) snprintf(sub, sn, "1/%d", spd);
+        if (spd > 0 && settings()->exp_lock && st->connected) {
+            if (s_xl_short >= 0.1f) snprintf(sub, sn, "1/%d " MIDDOT " " MINUS "%.1f STOP", spd, s_xl_short);
+            else                    snprintf(sub, sn, "1/%d " MIDDOT " LOCKED", spd);
+        }
         break;
     }
     case T_EI:  snprintf(v, vn, "%d", st->iso); break;
@@ -875,9 +883,10 @@ enum { PG_REC, PG_DISPLAY, PG_BATT, PG_CAMERA, PG_TAKES, PG_UPDATE, PG_ABOUT, NP
 static lv_obj_t *s_set, *s_nav[NPAGES], *s_nav_lbl[NPAGES], *s_sec[NPAGES];
 static int s_set_page;
 enum { SID_REC_HOLD, SID_TALLY, SID_CLIP, SID_FLIP, SID_START_LOCK, SID_BATT_LOW, SID_BATT_CRIT,
-       SID_BATT_SHOW, SID_WB_STEP, SID_NIGHT, SID_SLEEP };
+       SID_BATT_SHOW, SID_WB_STEP, SID_NIGHT, SID_SLEEP, SID_EXP_LOCK };
 
 static void rebuild_async(void *arg);
+static void xl_resync(uint32_t hold_ms);
 
 static int sget(int id)
 {
@@ -894,6 +903,7 @@ static int sget(int id)
     case SID_WB_STEP:    return c->wb_step;
     case SID_NIGHT:      return c->night;
     case SID_SLEEP:      return c->sleep;
+    case SID_EXP_LOCK:   return c->exp_lock;
     }
     return 0;
 }
@@ -917,6 +927,7 @@ static void sput(int id, int v)
     case SID_WB_STEP:    c->wb_step = v; break;
     case SID_NIGHT:      c->night = v; break;
     case SID_SLEEP:      c->sleep = v; break;
+    case SID_EXP_LOCK:   c->exp_lock = v; xl_resync(0); break;
     }
     settings_changed();
     if (id == SID_FLIP) plat_restart();            // the display is set up once, at start-up
@@ -1266,6 +1277,7 @@ static void pre_card_cb(lv_event_t *e)
     if (!s_st.connected || !s_st.have_data) { pre_hint("Not connected to the camera", true); return; }
     if (s_st.recording) { pre_hint("Stop recording first", true); return; }
     if (!unlocked()) { pre_hint("Editing is locked", true); return; }
+    xl_resync(1500);                                 // exposure lock: keep the preset's angle as saved
     camera_set_fps(p->fps);                          // frame rate first: the angle stays as set
     camera_set_shutter_angle(p->angle_x100);
     camera_set_iso(p->iso);
@@ -1377,6 +1389,7 @@ static void update_values(void)
         set_text_color(s_val[t], !live ? C_STALE : (t == T_FPS && s_st.offspeed) ? C_ORANGE : C_TEXT);
     }
     set_text_color(s_sub[T_FPS], (live && s_st.offspeed) ? C_ORANGE : C_TEXT2);
+    set_text_color(s_sub[T_SHUT], (live && settings()->exp_lock && s_xl_short >= 0.1f) ? C_ORANGE : C_TEXT2);
 
     fmt_tint(v, sizeof v, s_st.tint);                // tint lives in the WB tile
     set_text(s_tint_val, s_st.have_data ? v : MINUS MINUS);
@@ -1423,6 +1436,90 @@ static void track_recording(uint32_t now)
         s_hint_seen = recbutton_hint_seq();
         s_hint_until = now + 1500;
     }
+}
+
+// ---------- exposure lock ----------
+// Angle mode keeps the shutter angle when the frame rate changes, so the shutter speed, and the
+// brightness, change with it (24 -> 48 fps at 180 deg: 1/48 -> 1/96, a stop darker). With the lock
+// on, the board sends the angle that keeps the speed: 24 -> 48 fps at 180 deg becomes 360 deg.
+//
+// It follows whatever happens: a shutter change (here or on the camera) sets the speed to keep; a
+// frame-rate change (here or on the camera) is answered with the angle for that speed, once the
+// rate has been steady for XL_SETTLE_MS. If the angle changes along with the rate (the camera, or
+// another controller, set both), that pair is taken as meant. Presets apply exactly as saved.
+// Past 360 deg the angle stays at 360 and the shutter tile shows how many stops short it is; the
+// speed is kept, so going back to a lower rate restores the original angle.
+#define XL_SETTLE_MS  300                // frame rate steady this long before correcting
+#define XL_ECHO_MS    1500               // an angle change this soon after ours is the camera's answer
+#define XL_MAX_ANGLE  36000
+static double s_xl_exp;                  // shutter time to keep, seconds (0 = not known yet)
+static double s_xl_fps;                  // recording rate it was last checked against
+static int s_xl_angle;                   // angle last seen
+static int s_xl_sent = -1;               // angle we sent, until the camera answers
+static uint32_t s_xl_sent_ms, s_xl_wait_ms, s_xl_hold_until;
+static bool s_xl_wait;                   // a rate change is waiting to settle
+static int s_xl_wait_angle;              // the angle when it started
+static double s_xl_wait_fps;             // the rate last seen while waiting
+
+// Forget the speed and take it again from what the camera shows, after hold_ms (presets: once
+// their writes have landed).
+static void xl_resync(uint32_t hold_ms)
+{
+    s_xl_exp = 0;
+    s_xl_wait = false;
+    s_xl_sent = -1;
+    s_xl_short = 0;
+    s_xl_hold_until = lv_tick_get() + hold_ms;
+}
+
+static void xl_adopt(double f, int a)
+{
+    s_xl_fps = f;
+    s_xl_angle = a;
+    s_xl_exp = a / 36000.0 / f;
+    s_xl_wait = false;
+    s_xl_short = 0;
+}
+
+static void xl_tick(uint32_t now)
+{
+    if (!settings()->exp_lock || !s_st.connected || !s_st.have_data) { s_xl_exp = 0; return; }
+    const double f = sensor_fps(&s_st);
+    const int a = s_st.shutter_angle_x100;
+    if (f <= 0 || a <= 0) return;
+    if (s_xl_exp == 0 || (int32_t)(now - s_xl_hold_until) < 0 || s_st.recording) {
+        if (s_xl_exp == 0 || a != s_xl_angle || f != s_xl_fps) { xl_adopt(f, a); force_redraw(); }
+        return;
+    }
+    const bool echo = s_xl_sent >= 0 && now - s_xl_sent_ms < XL_ECHO_MS;
+    if (a != s_xl_angle) {
+        if (echo) { s_xl_sent = -1; s_xl_angle = a; if (s_xl_wait) s_xl_wait_angle = a; }   // our correction
+        else if (!s_xl_wait) { xl_adopt(f, a); force_redraw(); return; }                   // a new speed
+    }
+    if (f != s_xl_fps && !s_xl_wait) { s_xl_wait = true; s_xl_wait_ms = now; s_xl_wait_angle = a; s_xl_wait_fps = f; }
+    if (!s_xl_wait) return;
+    if (a != s_xl_wait_angle) { xl_adopt(f, a); force_redraw(); return; }   // rate and angle changed together
+    if (f != s_xl_wait_fps) { s_xl_wait_fps = f; s_xl_wait_ms = now; }      // still moving (+ held down)
+    if (now - s_xl_wait_ms < XL_SETTLE_MS) return;
+    s_xl_fps = f;
+    s_xl_wait = false;
+    const double want = s_xl_exp * f * 36000.0;
+    int send = (int)(want + 0.5);
+    s_xl_short = 0;
+    if (send > XL_MAX_ANGLE) {
+        send = XL_MAX_ANGLE;
+        s_xl_short = (float)log2(want / XL_MAX_ANGLE);
+    }
+    if (send < 1) send = 1;
+    if (send != a) {
+        camera_set_shutter_angle(send);
+        s_xl_sent = send;
+        s_xl_sent_ms = now;
+#ifdef ESP_PLATFORM
+        ESP_LOGI("explock", "%.3f fps: shutter %.2f -> %.2f deg (keeps 1/%.0f)", f, a / 100.0, send / 100.0, 1.0 / s_xl_exp);
+#endif
+    }
+    force_redraw();
 }
 
 // ---------- sleep ----------
@@ -1510,6 +1607,7 @@ static void tick_cb(lv_timer_t *t)
     const uint32_t now = lv_tick_get();
     camera_get(&s_st);
     track_recording(now);
+    xl_tick(now);
     if ((s_st.recording || !s_st.connected || !unlocked()) && s_ed_tile >= 0) editor_close();
     if (s_st.recording) { settings_close(); presets_close(); }
     if (s_st.seq != s_seq_drawn) {
@@ -1846,6 +1944,10 @@ static void build_settings(lv_obj_t *scr, int W, int H)
     static const char *const WBS[] = { "50K", "100K", "200K" };
     static const int WBS_V[] = { 50, 100, 200 };
     sseg_row(s_sec[PG_CAMERA], &y, "White balance step", "How far each press moves it.", SID_WB_STEP, 3, WBS, WBS_V);
+    static const char *const XL[] = { "Off", "Keep speed" };
+    static const int XL_V[] = { 0, 1 };
+    sseg_row(s_sec[PG_CAMERA], &y, "Exposure lock", "Changing FPS moves the angle to keep the shutter speed.",
+             SID_EXP_LOCK, 2, XL, XL_V);
     act_row(s_sec[PG_CAMERA], &y, "Pairing", "Forget this camera to pair a different one.", ACT_FORGET);
 
     y = 0;                                                       // Takes

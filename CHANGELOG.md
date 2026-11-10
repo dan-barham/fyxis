@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **REC from playback:** the REC key now always rolls a clip, even while the camera is playing one back.
+- **Exposure lock:** changing the frame rate, on the board or the camera, also moves the shutter angle
+  so the shutter speed and brightness stay the same (24 → 48 fps at 180° becomes 360°). Settings ›
+  Camera. Shows how many stops short it is when 360° isn't enough.
 - **Sleep:** with no camera for a minute (or 5, or never: Settings › Display), the screen and its
   backlight go off, the panel refreshes more slowly and Bluetooth scans at about a tenth of the duty
   cycle. The camera coming back, a touch or the REC key wakes it.
