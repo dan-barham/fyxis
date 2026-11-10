@@ -3,7 +3,7 @@
 // Layout:   FPS                | SHUTTER         | EI
 //           WB + TINT          | TIMECODE (two columns wide)
 //                              | status · cards  |
-//           presets · playback | slide to lock   | battery · settings
+//           presets · settings | slide to lock   | battery
 //
 // Behaviour
 //  - Editing is unlocked at start-up (or locked: Settings > Display). Slide the knob under the
@@ -19,12 +19,9 @@
 //    confirms, so a press always shows at once.
 //  - When not live, the status line shows the link state in amber. If the link drops, the last
 //    values stay in grey and the tally is suppressed.
-//  - Tap the battery strip (bottom right) for Settings.
 //  - First connection: the camera shows a 6-digit PIN; a keypad appears here to enter it.
-//  - Bottom left: presets (bookmarks icon) and playback (play icon). Playback (or Play on the
-//    camera) opens a playback screen: the clip's timecode, previous / next clip, play / pause,
-//    loop off / clip / all, and Exit playback.
-//    The REC button always rolls a new clip, from playback too.
+//  - Bottom left: Presets (bookmarks icon) and Settings (gear icon). The REC button always rolls
+//    a new clip, even if the camera is playing one back.
 //  - Exposure lock (Settings > Camera): a frame-rate change also moves the shutter angle, so the
 //    shutter speed, and so the brightness, stays the same. The shutter tile shows LOCKED.
 //  - Sleep: with no camera for a minute (Settings > Display), the screen goes black and its
@@ -57,9 +54,8 @@ LV_FONT_DECLARE(font_value_64);
 LV_FONT_DECLARE(font_big_132);
 // Icons: Tabler Icons, outline (MIT licence, licenses/Tabler-Icons-MIT.txt), as fonts.
 LV_FONT_DECLARE(font_icons_22);   // battery levels, memory card, settings, bluetooth
-LV_FONT_DECLARE(font_icons_28);   // lock, lock-open, backspace, bookmarks, player-play
+LV_FONT_DECLARE(font_icons_28);   // lock, lock-open, backspace, bookmarks, settings
 LV_FONT_DECLARE(font_icons_48);   // minus, plus
-LV_FONT_DECLARE(font_icons_56);   // player skip-back / play / pause / skip-forward, repeat off / once / all
 
 #define ICON_BATT_0     "\xEE\xA8\xB4"   // battery              U+EA34
 #define ICON_BATT_1     "\xEE\xA8\xAF"   // battery-1            U+EA2F
@@ -75,7 +71,6 @@ LV_FONT_DECLARE(font_icons_56);   // player skip-back / play / pause / skip-forw
 #define ICON_MINUS      "\xEE\xAB\xB2"   // minus                U+EAF2
 #define ICON_PLUS       "\xEE\xAC\x8B"   // plus                 U+EB0B
 #define ICON_PRESETS    "\xEE\xB4\x88"   // bookmarks            U+ED08
-#define ICON_PLAYBACK   "\xEE\xB5\x86"   // player-play          U+ED46
 
 // ---------- look ----------
 // Apple dark-mode palette, and an all-red night palette (Settings > Display). Greys are picked so
@@ -133,7 +128,7 @@ static const char *TITLES[T_COUNT] = { "FPS", "SHUTTER", "EI", "WHITE BALANCE" }
 
 // ---------- objects ----------
 static lv_obj_t *s_tile[T_COUNT], *s_title[T_COUNT], *s_val[T_COUNT], *s_sub[T_COUNT];
-static lv_obj_t *s_btn_pre, *s_btn_pb;     // bottom left: Presets, Playback
+static lv_obj_t *s_btn_pre, *s_btn_set;    // bottom left: Presets, Settings (icon labels)
 static lv_obj_t *s_tc_tile, *s_tc_cell[11], *s_tc_lbl;   // timecode: one fixed-width cell per character
 static lv_obj_t *s_status, *s_status_dot;               // under the timecode, left
 static lv_obj_t *s_slot_icon[2], *s_slot_num[2], *s_slot_lbl[2];   // under the timecode, right
@@ -1193,7 +1188,7 @@ static void upd_cb(lv_event_t *e)
 
 static void set_done_cb(lv_event_t *e) { settings_close(); }
 
-static void bat_cb(lv_event_t *e)
+static void bat_cb(lv_event_t *e)                // the Settings button
 {
     if (s_st.recording) return;                    // the main screen stays up while rolling
     settings_open();
@@ -1406,7 +1401,7 @@ static void update_values(void)
     update_tc();
     update_cards();
     set_text_color(s_btn_pre, s_st.recording ? C_STALE : C_TEXT);
-    set_text_color(s_btn_pb, live && s_st.have_data && !s_st.recording ? C_TEXT : C_STALE);
+    set_text_color(s_btn_set, s_st.recording ? C_STALE : C_TEXT);
     pin_show(s_st.need_pin);
     lock_sync(true);
     editor_refresh();
@@ -1533,249 +1528,6 @@ static void xl_tick(uint32_t now)
     force_redraw();
 }
 
-// ---------- playback ----------
-// Full screen, over everything but the record frame. Opens from the playback button (which puts
-// the camera into playback, paused on the last clip) or when the camera goes into playback by
-// itself, and closes when it leaves playback: Exit playback, the REC button (which rolls a new
-// clip), or the camera's own buttons.
-//
-// What the PYXIS does over Bluetooth (tested, docs/protocol.md): play / pause, previous / next
-// clip. Playing, it runs on through every clip and stops at the end of the card, whatever the
-// loop and play-all flags say. So looping is done here, from the timecode (the clip's own):
-//   LOOP CLIP: a jump in the timecode while playing is the next clip starting: "previous" (which
-//              goes to the start of the clip before) brings it back to this clip's start. On the
-//              last clip the camera stops at the end of the card: previous and next together.
-//   LOOP ALL:  at the end of the card, previous until the timecode stops changing (the first
-//              clip), then play.
-// Each step lands on the start of a clip and checks it against the start of the clip being
-// looped, stepping again if it's wrong. The camera shows a frame of wherever it passes through,
-// so a loop has a brief flash.
-enum { PB_PREV, PB_PLAY, PB_NEXT, PB_LOOP, PB_NBTN };
-enum { LOOP_OFF, LOOP_CLIP, LOOP_ALL };
-enum { LS_NONE, LS_SEEK, LS_REWIND };                      // loop steps in progress
-#define ICON_SKIP_BACK  "\xEE\xB5\x88"   // player-skip-back     U+ED48
-#define ICON_PLAY       "\xEE\xB5\x86"   // player-play          U+ED46
-#define ICON_PAUSE      "\xEE\xB5\x85"   // player-pause         U+ED45
-#define ICON_SKIP_FWD   "\xEE\xB5\x89"   // player-skip-forward  U+ED49
-#define ICON_REPEAT_OFF "\xEF\x86\x8E"   // repeat-off           U+F18E
-#define ICON_REPEAT_1   "\xEE\xAD\xB1"   // repeat-once          U+EB71
-#define ICON_REPEAT     "\xEE\xAD\xB2"   // repeat               U+EB72
-#ifdef ESP_PLATFORM
-#define PB_LOG(...) ESP_LOGI("playback", __VA_ARGS__)
-#else
-#define PB_LOG(...) (printf("[playback] " __VA_ARGS__), printf("\n"))
-#endif
-static lv_obj_t *s_pb, *s_pb_tc[11], *s_pb_state, *s_pb_btn[PB_NBTN], *s_pb_icon[PB_NBTN], *s_pb_loop_lbl;
-static int s_pb_mode_seen = -1;           // transport mode last tick
-static uint32_t s_pb_opened;              // when we asked for playback (closing waits for the camera)
-static int s_pb_want;                     // speed we asked for (0 = paused)
-static int s_pb_loop = LOOP_OFF;
-static int s_pb_ls, s_pb_tries;           // LS_*, and steps taken by this seek
-static int32_t s_pb_last_f = -1;          // timecode last seen, and when it last changed
-static uint32_t s_pb_last_move, s_pb_step_ms, s_pb_play_ms;
-static int32_t s_pb_clip_start = -1;      // timecode at the start of the clip being played
-static int32_t s_pb_target = -1;          // a seek's goal: the start of the clip being looped
-static bool s_pb_need_start;              // just arrived at a clip: note where it starts
-static int s_pb_clips_run;                // clip changes seen while playing (for LOOP ALL's rewind)
-
-static bool pb_shown(void) { return s_pb && !lv_obj_has_flag(s_pb, LV_OBJ_FLAG_HIDDEN); }
-
-static int pb_fps(void)                   // timecode frames a second
-{
-    return s_st.project_fps > 0 ? s_st.project_fps : 25;
-}
-
-static int32_t pb_frames(void)            // the camera's timecode in frames (-1 = none)
-{
-    if (!s_st.tc_valid) return -1;
-    return ((s_st.tc_h * 60 + s_st.tc_m) * 60 + s_st.tc_s) * pb_fps() + s_st.tc_f;
-}
-
-static void pb_speed(int sp)               // ask for a speed (0 = pause)
-{
-    s_pb_want = sp;
-    s_pb_play_ms = lv_tick_get();
-    s_pb_clips_run = 0;
-    camera_playback(1, sp, s_pb_loop == LOOP_ALL ? 2 : 0);
-}
-
-static void pb_step(bool next)             // to the start of the next / previous clip
-{
-    camera_playback_clip(next ? 1 : -1);
-    s_pb_step_ms = lv_tick_get();
-    s_pb_need_start = true;
-}
-
-static void pb_render(void)
-{
-    if (!pb_shown()) return;
-    char tc[16];
-    if (s_st.tc_valid) snprintf(tc, sizeof tc, "%02d:%02d:%02d:%02d", s_st.tc_h % 100, s_st.tc_m % 100, s_st.tc_s % 100, s_st.tc_f % 100);
-    else               snprintf(tc, sizeof tc, "--:--:--:--");
-    for (int i = 0; i < 11; i++) {
-        const char ch[2] = { tc[i], 0 };
-        set_text(s_pb_tc[i], ch);
-    }
-    const bool in_pb = s_st.transport_mode == 1;
-    const bool playing = in_pb && s_st.transport_speed != 0;
-    set_text(s_pb_state, !in_pb ? "OPENING" ELLIPSIS : s_pb_ls ? "LOOPING" ELLIPSIS : playing ? "PLAYING" : "PAUSED");
-    set_text_color(s_pb_state, playing || s_pb_ls ? C_TEXT : C_TEXT2);
-    set_text(s_pb_icon[PB_PLAY], playing || s_pb_ls ? ICON_PAUSE : ICON_PLAY);
-    set_text(s_pb_icon[PB_LOOP], s_pb_loop == LOOP_CLIP ? ICON_REPEAT_1 : s_pb_loop == LOOP_ALL ? ICON_REPEAT : ICON_REPEAT_OFF);
-    set_text(s_pb_loop_lbl, s_pb_loop == LOOP_CLIP ? "LOOP CLIP" : s_pb_loop == LOOP_ALL ? "LOOP ALL" : "LOOP OFF");
-    set_bg(s_pb_btn[PB_LOOP], s_pb_loop != LOOP_OFF ? C_BLUE : C_BTN);
-}
-
-static void pb_close(void)
-{
-    if (s_pb) set_shown(s_pb, false);
-    s_pb_ls = LS_NONE;
-}
-
-static void pb_show(void)
-{
-    editor_close();
-    presets_close();
-    settings_close();
-    set_shown(s_pb, true);
-    s_pb_step_ms = lv_tick_get();                  // where it opens is a clip's start
-    s_pb_need_start = true;
-    force_redraw();
-    pb_render();
-}
-
-// The playback button on the main screen.
-static void pb_open_cb(lv_event_t *e)
-{
-    (void)e;
-    if (!s_st.connected || !s_st.have_data || s_st.recording) return;
-    if (!unlocked()) { lock_nudge(); return; }
-    if (s_st.transport_mode != 1) pb_speed(0);   // into playback, paused on the last clip
-    s_pb_opened = lv_tick_get();
-    pb_show();
-}
-
-static void pb_btn_cb(lv_event_t *e)
-{
-    const int k = (int)(intptr_t)lv_event_get_user_data(e);
-    const bool busy = s_pb_ls != LS_NONE;
-    if (k != PB_LOOP) s_pb_ls = LS_NONE;                    // (changing the loop lets a loop finish)
-    switch (k) {
-    case PB_PREV: pb_step(false); s_pb_want = 0; break;
-    case PB_NEXT: pb_step(true);  s_pb_want = 0; break;
-    case PB_PLAY: pb_speed(s_st.transport_speed != 0 || busy ? 0 : 1); break;
-    case PB_LOOP:
-        s_pb_loop = (s_pb_loop + 1) % 3;
-        break;
-    }
-    pb_render();
-}
-
-static void pb_exit_cb(lv_event_t *e)
-{
-    (void)e;
-    camera_playback(0, 0, 0);
-    pb_close();
-}
-
-// Two timecodes within half a second: the first timecode seen after a jump (a rough clip start)
-// still matches the exact one a step lands on, and clips are much longer than that.
-static bool pb_near(int32_t a, int32_t b) { return a >= 0 && b >= 0 && labs((long)(a - b)) <= pb_fps() / 2; }
-
-static void pb_seek(int32_t target)        // step until at the start of the clip that starts here
-{
-    s_pb_ls = LS_SEEK;
-    s_pb_tries = 0;
-    s_pb_target = target;
-}
-
-// Loop, driven by what the camera reports.
-static void pb_loop_tick(uint32_t now)
-{
-    if (s_st.transport_mode != 1) { s_pb_ls = LS_NONE; return; }
-    const int32_t f = pb_frames();
-    bool jumped = false;
-    if (f != s_pb_last_f) {
-        // Playing forwards, the timecode goes up by about the time since it last changed. Going
-        // back, or on by half a second more than that, is the next clip starting.
-        if (f >= 0 && s_pb_last_f >= 0 && s_pb_want > 0 && s_pb_ls == LS_NONE && now - s_pb_step_ms > 500) {
-            const int32_t expect = (int32_t)((now - s_pb_last_move) * (uint32_t)pb_fps() * (uint32_t)s_pb_want / 1000);
-            jumped = f < s_pb_last_f || f - s_pb_last_f > expect + pb_fps() / 2 + 2;
-        }
-        s_pb_last_f = f;
-        s_pb_last_move = now;
-    }
-    const bool moved = s_pb_last_move > s_pb_step_ms;        // since the last step
-    const bool settled = now - s_pb_step_ms > (moved ? 250 : 800);
-    if (s_pb_need_start && settled) { s_pb_clip_start = f; s_pb_need_start = false; }
-
-    switch (s_pb_ls) {
-    case LS_SEEK:                                            // loop clip: to the clip's start
-        if (!settled) return;
-        if (s_pb_target < 0 || pb_near(f, s_pb_target) || s_pb_tries >= 4) {
-            if (s_pb_target >= 0 && !pb_near(f, s_pb_target)) PB_LOG("couldn't find the clip's start: playing from here");
-            s_pb_ls = LS_NONE;
-            pb_speed(1);
-            return;
-        }
-        s_pb_tries++;
-        PB_LOG("landed on the wrong clip: %s", f < s_pb_target ? "next" : "previous");
-        pb_step(f < s_pb_target);
-        return;
-    case LS_REWIND:                                          // loop all: back to the first clip
-        if (!settled) return;
-        if (moved && s_pb_tries++ < 50) pb_step(false);
-        else { s_pb_ls = LS_NONE; pb_speed(1); }
-        return;
-    }
-    if (s_pb_want <= 0) return;
-
-    if (jumped) {                                            // playing on into the next clip
-        s_pb_clips_run++;
-        if (s_pb_loop == LOOP_CLIP) {
-            PB_LOG("next clip started: previous, back to this one");
-            pb_step(false);
-            pb_seek(s_pb_clip_start);
-        } else {
-            s_pb_clip_start = f;
-        }
-        return;
-    }
-
-    // Stopped by itself: the end of the card (reported as speed 0, or the timecode stuck for 2 s).
-    const uint32_t still = now - s_pb_last_move;
-    if (now - s_pb_play_ms < 1200 || !(still > 2000 || (still > 500 && s_st.transport_speed == 0))) return;
-    if (s_pb_loop == LOOP_OFF) { s_pb_want = 0; return; }
-    if (s_pb_loop == LOOP_CLIP) {
-        // The last clip. Previous goes to the clip before (or, if it's the only clip, its own
-        // start, and then next does nothing).
-        PB_LOG("end of the card: previous and next, back to this clip");
-        pb_step(false);
-        pb_step(true);
-        pb_seek(s_pb_clip_start);
-    } else {
-        PB_LOG("end of the card: back to the first clip (%d clip changes seen)", s_pb_clips_run);
-        for (int i = 0; i < s_pb_clips_run && i < 20; i++) pb_step(false);
-        if (!s_pb_clips_run) pb_step(false);
-        s_pb_ls = LS_REWIND;
-        s_pb_tries = 0;
-    }
-    s_pb_need_start = false;                                 // keep the clip's start for the check
-}
-
-static void pb_tick(uint32_t now)
-{
-    const int mode = s_st.connected ? s_st.transport_mode : -1;
-    if (mode != s_pb_mode_seen) {
-        if (mode == 1 && !s_st.recording) { s_pb_want = s_st.transport_speed; pb_show(); }   // camera went into playback
-        else if (s_pb_mode_seen == 1 || now - s_pb_opened > 2000) pb_close();   // left it (or never got there)
-        s_pb_mode_seen = mode;
-    }
-    if (pb_shown() && mode != 1 && now - s_pb_opened > 2000) pb_close();   // asked, but no playback came
-    if (pb_shown()) pb_loop_tick(now);
-    pb_render();
-}
-
 // ---------- sleep ----------
 // With no camera for a while (Settings > Display > Sleep), a black cover goes over everything,
 // then the backlight goes off, the panel is refreshed slowly and Bluetooth scans at a low duty
@@ -1862,7 +1614,6 @@ static void tick_cb(lv_timer_t *t)
     camera_get(&s_st);
     track_recording(now);
     xl_tick(now);
-    pb_tick(now);
     if ((s_st.recording || !s_st.connected || !unlocked()) && s_ed_tile >= 0) editor_close();
     if (s_st.recording) { settings_close(); presets_close(); }
     if (s_st.seq != s_seq_drawn) {
@@ -2256,71 +2007,6 @@ static void build_settings(lv_obj_t *scr, int W, int H)
     lv_obj_add_flag(s_set, LV_OBJ_FLAG_HIDDEN);
 }
 
-// Playback screen: the clip's timecode, and four big buttons.
-static void build_playback(lv_obj_t *scr, int W, int H)
-{
-    s_pb = box(scr);
-    lv_obj_set_size(s_pb, W, H);
-    lv_obj_set_style_bg_color(s_pb, C_BG, 0);
-    lv_obj_set_style_bg_opa(s_pb, LV_OPA_COVER, 0);
-    lv_obj_add_flag(s_pb, LV_OBJ_FLAG_CLICKABLE);                // swallow touches behind it
-
-    lv_obj_t *title = caption(s_pb, "PLAYBACK");
-    lv_obj_set_pos(title, 28, 34);
-    lv_obj_t *exit = pill(s_pb, "Exit playback", C_BLUE);
-    lv_obj_set_size(exit, 240, 64);
-    lv_obj_set_pos(exit, W - 20 - 240, 16);
-    lv_obj_add_event_cb(exit, pb_exit_cb, LV_EVENT_CLICKED, NULL);
-
-    int dig_w = 0;                                               // fixed cells, as on the main screen
-    for (char c = '0'; c <= '9'; c++) {
-        const int g = lv_font_get_glyph_width(&font_value_64, c, 0);
-        if (g > dig_w) dig_w = g;
-    }
-    const int col_w = lv_font_get_glyph_width(&font_value_64, ':', 0) + 4;
-    int x = (W - (8 * dig_w + 3 * col_w)) / 2;
-    for (int i = 0; i < 11; i++) {
-        const int w = i % 3 == 2 ? col_w : dig_w;
-        s_pb_tc[i] = text(s_pb, &font_value_64, C_TEXT);
-        lv_obj_set_size(s_pb_tc[i], w, LV_SIZE_CONTENT);
-        lv_obj_set_style_text_align(s_pb_tc[i], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(s_pb_tc[i], x, 100);
-        x += w;
-    }
-    s_pb_state = caption(s_pb, "");
-    lv_obj_set_width(s_pb_state, W);
-    lv_obj_set_style_text_align(s_pb_state, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_pb_state, 0, 190);
-
-    // Previous, play / pause, next, loop: big rounded buttons across the bottom.
-    static const char *ICONS[PB_NBTN] = { ICON_SKIP_BACK, ICON_PLAY, ICON_SKIP_FWD, ICON_REPEAT_OFF };
-    const int gap = 14, bw = (W - 2 * 20 - 3 * gap) / 4, bh = 176;
-    x = 20;
-    for (int k = 0; k < PB_NBTN; k++) {
-        lv_obj_t *o = box(s_pb);
-        lv_obj_set_size(o, bw, bh);
-        lv_obj_set_pos(o, x, H - 20 - bh);
-        lv_obj_set_style_radius(o, RADIUS, 0);
-        lv_obj_set_style_bg_color(o, k == PB_PLAY ? C_BTN_PR : C_BTN, 0);
-        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(o, C_SEG_ON, LV_STATE_PRESSED);
-        lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(o, pb_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
-        s_pb_icon[k] = text(o, &font_icons_56, C_TEXT);
-        lv_label_set_text(s_pb_icon[k], ICONS[k]);
-        lv_obj_align(s_pb_icon[k], LV_ALIGN_CENTER, 0, k == PB_LOOP ? -14 : 0);
-        if (k == PB_LOOP) {
-            s_pb_loop_lbl = caption(o, "LOOP OFF");
-            lv_obj_set_style_text_color(s_pb_loop_lbl, C_TEXT, 0);
-            lv_obj_align(s_pb_loop_lbl, LV_ALIGN_BOTTOM_MID, 0, -18);
-        }
-        s_pb_btn[k] = o;
-        x += bw + gap;
-    }
-
-    lv_obj_add_flag(s_pb, LV_OBJ_FLAG_HIDDEN);
-}
-
 // Presets: six cards, 3 x 2.
 static void build_presets(lv_obj_t *scr, int W, int H)
 {
@@ -2529,7 +2215,7 @@ static void build(void)
     s_lk_icon = text(s_lk_knob, &font_icons_28, C_BG);
     lock_sync(false);
 
-    // ---- Presets and playback buttons (bottom left, under the WB tile): bookmarks and play icons ----
+    // ---- Presets and Settings buttons (bottom left, under the WB tile): bookmarks and gear icons ----
     const int hb = (tw - GAP) / 2;
     for (int i = 0; i < 2; i++) {
         lv_obj_t *b = box(scr);
@@ -2540,33 +2226,31 @@ static void build(void)
         lv_obj_set_style_bg_color(b, C_TILE_PR, LV_STATE_PRESSED);
         lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
         lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(b, i ? pb_open_cb : tc_cb, LV_EVENT_SHORT_CLICKED, NULL);
+        lv_obj_add_event_cb(b, i ? bat_cb : tc_cb, LV_EVENT_SHORT_CLICKED, NULL);
         lv_obj_t *l = text(b, &font_icons_28, C_TEXT);
-        lv_label_set_text(l, i ? ICON_PLAYBACK : ICON_PRESETS);
+        lv_label_set_text(l, i ? ICON_GEAR : ICON_PRESETS);
         lv_obj_center(l);
-        if (i) s_btn_pb = l; else s_btn_pre = l;
+        if (i) s_btn_set = l; else s_btn_pre = l;
     }
 
-    // ---- Battery strip (tap for Settings) ----
+    // ---- Battery strip ----
     s_bat = box(scr);
     lv_obj_set_size(s_bat, tw, LOCK_H);
     lv_obj_set_pos(s_bat, x3, H - MARGIN - LOCK_H);
     lv_obj_set_style_bg_color(s_bat, C_TILE, 0);
     lv_obj_set_style_bg_opa(s_bat, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(s_bat, C_TILE_PR, LV_STATE_PRESSED);
     lv_obj_set_style_radius(s_bat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_add_flag(s_bat, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_bat, bat_cb, LV_EVENT_CLICKED, NULL);
-    s_batt_icon = text(s_bat, &font_icons_22, C_STALE);
+    lv_obj_t *brow = box(s_bat);                                  // icon and reading, centred
+    lv_obj_set_size(brow, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(brow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(brow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(brow, 12, 0);
+    lv_obj_center(brow);
+    s_batt_icon = text(brow, &font_icons_22, C_STALE);
     lv_label_set_text(s_batt_icon, ICON_BATT_0);
-    lv_obj_align(s_batt_icon, LV_ALIGN_LEFT_MID, 26, 0);
-    s_batt_lbl = caption(s_bat, MINUS MINUS);
+    s_batt_lbl = caption(brow, MINUS MINUS);
     lv_obj_set_style_text_letter_space(s_batt_lbl, 0, 0);
     lv_obj_set_style_text_color(s_batt_lbl, C_STALE, 0);
-    lv_obj_align(s_batt_lbl, LV_ALIGN_LEFT_MID, 58, 0);
-    lv_obj_t *gear = text(s_bat, &font_icons_22, C_TEXT2);
-    lv_label_set_text(gear, ICON_GEAR);
-    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -26, 0);
 
     // ---- Editor overlay ----
     s_editor = box(scr);
@@ -2670,7 +2354,6 @@ static void build(void)
 
     build_presets(scr, W, H);
     build_settings(scr, W, H);
-    build_playback(scr, W, H);
 
     // ---- PIN overlay: heading and digits on the left, round keypad on the right ----
     s_pin = box(scr);
@@ -2735,7 +2418,6 @@ static void rebuild_async(void *arg)
     s_tally_w = -1;
     s_ed_tile = -1;
     s_lk_drag = false;
-    s_pb_mode_seen = -1;
     build();
     force_redraw();
     settings_open();                                // back where the change was made

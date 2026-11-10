@@ -5,11 +5,11 @@
  FPS                  | SHUTTER              | EI
  5600K                | TC  01:00:12:07                    (two columns wide)
  WB · TINT 0          | 12K 17:9 / REC 00:01:23     1 23:49 | 2 EMPTY
- [presets] [play]     | slide to lock        | battery · settings
+ [presets] [settings] | slide to lock        | battery
 ```
 
 - **Record:** the physical REC button on the case (wiring in [hardware.md](hardware.md)). It always
-  rolls a clip, even while the camera is playing one back.
+  rolls a clip, even while the camera is playing one back (from its own buttons).
   While recording: a red frame round the whole screen (nothing moves), editing is blocked, and the
   line under the timecode shows **● REC** and how long the take has been rolling. The frame appears
   dimmed the instant the button is pressed and goes solid when the camera confirms, so a press always
@@ -30,22 +30,6 @@
   PYXIS: if nothing appears with an EF / L-mount lens, the camera doesn't send it over Bluetooth.
 - **Night mode** (Settings › Display › Colours): everything in dim red on black, for dark sets. The
   record frame stays full red.
-- **Playback:** the play button, bottom left, puts the camera into playback (paused on the last
-  clip) and opens the playback screen; it also opens by itself when you press Play on the camera.
-  The clip plays on the camera's screen or its video output, not on this one.
-  - **Previous / play-pause / next:** previous and next go to the start of a clip, paused.
-  - **Loop** (tap to cycle): **Off** plays on through the clips and stops at the end of the card;
-    **Clip** plays the same clip again; **All** plays every clip in turn and then starts again from
-    the first. The camera can't loop by itself over Bluetooth, so the board watches the timecode: a
-    jump means the next clip has started, and it steps back. The camera's screen shows a brief flash
-    of another clip at each loop. Clip loop needs the timecode to jump between clips (time of day or
-    free run); with record run timecode, clips follow on with no jump, and only the last clip loops.
-  - **Exit playback** takes the camera out of playback. The REC button rolls a new clip straight
-    from playback and closes the screen.
-  - The play button is dimmed while recording or not connected; while editing is locked it only
-    nudges the lock knob. The camera only plays clips in its current recording format.
-
-  ![Playback screen](../media/screen-playback.png)
 - **Exposure lock** (Settings › Camera › Exposure lock › Keep speed): in angle mode the camera keeps
   the shutter *angle* when the frame rate changes, so the shutter *speed* and the brightness change
   with it (24 → 48 fps at 180° is 1/48 → 1/96, a stop darker). With the lock on, the board answers
@@ -71,7 +55,7 @@
   empty slot. Card time turns red under 5 minutes; a full card shows **FULL**. Because the camera
   reports an empty slot as 0 time left, a slot counts as holding a card only if its transport flag is
   set or it reports time left (and hasn't been ejected since).
-- **Battery strip** (bottom right; tap it for **Settings**): the voltage at the camera's 2-pin LEMO (or
+- **Battery strip** (bottom right): the voltage at the camera's 2-pin LEMO (or
   an estimated percentage) and, once there's 3 minutes of history, an estimate of time left
   (`15.3V · 1h 20m`). The Tilta plate passes the V-mount straight through, so voltage tracks charge;
   it's mapped through a lithium-ion curve anchored on two measured points (15.3 V = 79 %,
@@ -96,7 +80,7 @@
 - Steps: WB 100 K (50 / 100 / 200 K in Settings › Camera), tint 1, ISO 125 … 3200.
 - **Pair a different camera:** Settings › Camera › **Forget camera** (tap twice to confirm).
 
-## Settings (tap the battery strip)
+## Settings (the gear button, bottom left)
 
 | Page | Setting | Choices |
 |---|---|---|

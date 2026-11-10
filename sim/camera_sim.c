@@ -67,16 +67,6 @@ static void *reader(void *arg)
                 fflush(stdout);
                 last_mv = st.batt_mv;
             }
-            static char last_tr[96];                 // log transport changes (playback testing)
-            char tr[96];
-            snprintf(tr, sizeof tr, "mode %d (%s), speed %d, flags 0x%02x", st.transport_mode,
-                     st.transport_mode == 2 ? "recording" : st.transport_mode == 1 ? "playback" : "preview",
-                     st.transport_speed, st.transport_flags);
-            if (strcmp(tr, last_tr)) {
-                printf("[transport] %s   tc %02d:%02d:%02d:%02d\n", tr, st.tc_h, st.tc_m, st.tc_s, st.tc_f);
-                fflush(stdout);
-                strcpy(last_tr, tr);
-            }
             static char last_media[96];              // log card-slot changes (to check empty / full)
             char m[96];
             snprintf(m, sizeof m, "slots %d: %d / %d s, flags 0x%02x, card in %d/%d, medium %d / %d", st.slot_n,
@@ -117,64 +107,6 @@ static void *reader(void *arg)
 }
 
 static void stop_helper(void) { if (s_helper_pid > 0) kill(s_helper_pid, SIGTERM); }
-
-// ---------- live: playback test keys ----------
-// Checks which of Blackmagic's playback commands the camera accepts over Bluetooth. Type a key and
-// Return; the [transport] lines show what the camera reports back.
-static void live_help(void)
-{
-    printf("\nPlayback test keys (type a key, then Return):\n"
-           "  p  play 1x            s  pause              x  stop playback (preview)\n"
-           "  n  next clip          v  previous clip\n"
-           "  S <n>  play at speed n (e.g. S 4, S -8)\n"
-           "  L <n>  play 1x with loop flags n: 0 off, 1 loop, 2 play all, 3 loop + play all\n"
-           "  r  REC (what the REC button sends: should roll a clip, even from playback)\n"
-           "  t  show transport state and timecode      h  this help\n\n");
-    fflush(stdout);
-}
-
-static void live_send(const char *what, const uint8_t *b, int len)
-{
-    printf("[test] %s: ", what);
-    if (!len) { printf("nothing sent (not online, or recording)\n"); fflush(stdout); return; }
-    for (int i = 0; i < len; i++) printf("%02x", b[i]);
-    printf("\n");
-    fflush(stdout);
-    send_to_camera(b, len);
-}
-
-static void *live_console(void *arg)
-{
-    (void)arg;
-    char line[64];
-    live_help();
-    while (fgets(line, sizeof line, stdin)) {
-        uint8_t b[32];
-        cam_state_t st;
-        camproto_get(&st);
-        char what[48];
-        const int arg = atoi(line + 1);
-        switch (line[0]) {
-        case 'p': live_send("play 1x", b, camproto_build_transport(1, 1, 0, b)); break;
-        case 's': live_send("pause", b, camproto_build_transport(1, 0, 0, b)); break;
-        case 'x': live_send("stop playback", b, camproto_build_transport(0, 0, 0, b)); break;
-        case 'n': live_send("next clip", b, camproto_build_clip_step(true, b)); break;
-        case 'v': live_send("previous clip", b, camproto_build_clip_step(false, b)); break;
-        case 'S': snprintf(what, sizeof what, "speed %d", arg);
-                  live_send(what, b, camproto_build_transport(1, arg, 0, b)); break;
-        case 'L': snprintf(what, sizeof what, "play with flags %d", arg);
-                  live_send(what, b, camproto_build_transport(1, 1, arg, b)); break;
-        case 'r': camera_record(true); break;
-        case 't':
-            printf("[test] mode %d, speed %d, flags 0x%02x, recording %d, tc %02d:%02d:%02d:%02d\n", st.transport_mode,
-                   st.transport_speed, st.transport_flags, st.recording, st.tc_h, st.tc_m, st.tc_s, st.tc_f);
-            fflush(stdout);
-            break;
-        case 'h': live_help(); break;
-        }
-    }
-    return NULL;
-}
 
 static void start_helper(void)
 {
@@ -266,64 +198,6 @@ static void *demo_console(void *arg)
     return NULL;
 }
 
-// Demo playback: three clips on a timeline (24 fps, time-of-day timecode, so the timecode jumps
-// between clips), played at the requested speed through every clip, stopping at either end of the
-// card whatever the loop / play-all flags say; clip steps go to the start of the previous / next
-// clip, paused. Modelled on what the PYXIS did in the Bluetooth tests.
-static const struct { int len, tc; } DEMO_CLIPS[] = {
-    { 20 * 24, 10 * 3600 * 24 }, { 15 * 24, (10 * 3600 + 300) * 24 }, { 10 * 24, (10 * 3600 + 600) * 24 },
-};
-#define DEMO_NCLIPS 3
-static volatile int s_pb_pos = -1;          // frame on the timeline (-1 = not in playback yet)
-
-static int demo_clip_start(int c)
-{
-    int p = 0;
-    for (int i = 0; i < c; i++) p += DEMO_CLIPS[i].len;
-    return p;
-}
-static int demo_clip_of(int pos)
-{
-    int c = 0;
-    while (c + 1 < DEMO_NCLIPS && pos >= demo_clip_start(c + 1)) c++;
-    return c;
-}
-static int demo_total(void) { return demo_clip_start(DEMO_NCLIPS); }
-
-static void demo_report(int speed)
-{
-    cam_state_t st;
-    camproto_get(&st);
-    int32_t v[5] = { st.transport_mode, speed, (st.transport_flags & ~3) | (speed ? 2 : 0), 4, 0 };
-    loop_back(10, 1, 1, v, 5);
-}
-
-static void demo_pb_tc(uint8_t tc[4])
-{
-    const int c = demo_clip_of(s_pb_pos);
-    const int f = DEMO_CLIPS[c].tc + (s_pb_pos - demo_clip_start(c));
-    const int fr = f % 24, sec = f / 24 % 60, m = f / 1440 % 60, h = f / 86400 % 24;
-    tc[0] = (uint8_t)((fr / 10) << 4 | fr % 10); tc[1] = (uint8_t)((sec / 10) << 4 | sec % 10);
-    tc[2] = (uint8_t)((m / 10) << 4 | m % 10);   tc[3] = (uint8_t)((h / 10) << 4 | h % 10);
-}
-
-// A packet the screen sent: playback needs more than a straight loop-back.
-static bool demo_playback_packet(const uint8_t *b, int len)
-{
-    if (len < 9 || b[4] != 10) return false;
-    if (b[5] == 2) {                                      // clip step
-        const int c = demo_clip_of(s_pb_pos < 0 ? 0 : s_pb_pos);
-        const int to = b[8] ? (c + 1 < DEMO_NCLIPS ? c + 1 : c) : (c > 0 ? c - 1 : c);
-        if (to != c || !b[8]) s_pb_pos = demo_clip_start(to);     // previous on the first clip: its start
-        demo_report(0);
-        printf("[demo] %s clip -> clip %d\n", b[8] ? "next" : "previous", to + 1);
-        return true;
-    }
-    if (b[5] == 1 && b[8] == 1 && s_pb_pos < 0) s_pb_pos = demo_clip_start(DEMO_NCLIPS - 1);   // opens on the last clip
-    if (b[5] == 1 && b[8] != 1) s_pb_pos = -1;
-    return false;
-}
-
 static void *demo_clock(void *arg)
 {
     int drain = 0;
@@ -333,18 +207,6 @@ static void *demo_clock(void *arg)
         if (++f == 24) { f = 0; if (++sec == 60) { sec = 0; if (++m == 60) { m = 0; h = (h + 1) % 24; } } }
         uint8_t tc[4] = { (uint8_t)((f / 10) << 4 | f % 10), (uint8_t)((sec / 10) << 4 | sec % 10),
                           (uint8_t)((m / 10) << 4 | m % 10), (uint8_t)((h / 10) << 4 | h % 10) };
-        cam_state_t pst;
-        camproto_get(&pst);
-        if (pst.transport_mode == 1 && s_pb_pos >= 0) {            // playback: the clip's timecode
-            int np = s_pb_pos + pst.transport_speed;
-            const int lo = 0, hi = demo_total() - 1;             // stop at an end of the card
-            if (np < lo || np > hi) {
-                np = np < lo ? lo : hi;
-                if (pst.transport_speed) demo_report(0);
-            }
-            s_pb_pos = np;
-            demo_pb_tc(tc);
-        }
         camproto_decode_timecode(tc, 4);
         if (++tick % 24 == 0) {
             if (s_demo_rec && media > 0 && s_demo_card1) media--;
@@ -388,12 +250,7 @@ void camera_start(void)
 {
     camproto_set_link(LINK_SEARCHING, false);
     if (g_demo) demo_start();
-    else {
-        start_helper();
-        pthread_t t;
-        pthread_create(&t, NULL, live_console, NULL);
-        pthread_detach(t);
-    }
+    else start_helper();
 }
 
 void camera_get(cam_state_t *out) { camproto_get(out); }
@@ -423,7 +280,7 @@ void camera_step(cam_param_t p, int dir)
 static void send_to_camera(const uint8_t *b, int len)
 {
     if (g_demo) {
-        if (!demo_playback_packet(b, len)) camproto_decode(b, len);   // the "camera" accepts it as-is
+        camproto_decode(b, len);            // the "camera" accepts it as-is
         return;
     }
     fprintf(s_to_helper, "TX ");
@@ -448,20 +305,6 @@ static void send_logged(const char *what, const uint8_t *b, int len)
     printf("[ui] %s: %s\n", what, len ? "sending" : "nothing sent (not live, recording, or out of range)");
     fflush(stdout);
     if (len) send_to_camera(b, len);
-}
-
-void camera_playback(int mode, int speed, int flags)
-{
-    uint8_t b[32];
-    char what[48];
-    snprintf(what, sizeof what, "playback mode %d speed %d%s", mode, speed, flags & 2 ? " (all clips)" : "");
-    send_logged(what, b, camproto_build_transport(mode, speed, flags, b));
-}
-
-void camera_playback_clip(int steps)
-{
-    uint8_t b[32];
-    send_logged(steps > 0 ? "next clip" : "previous clip", b, camproto_build_clip_step(steps > 0, b));
 }
 
 void camera_set_shutter_angle(int angle_x100)

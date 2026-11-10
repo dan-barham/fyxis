@@ -22,7 +22,6 @@ it's useful to someone else.
 - Six presets (FPS, shutter, EI, white balance and tint together), a take log, a red night mode, a
   battery graph, and firmware updates over Wi-Fi.
 - Shows aperture and focal length if the camera reports them.
-- Playback remote: play / pause, previous / next clip, loop a clip or all clips, with the clip's timecode.
 - Exposure lock: change the frame rate and the shutter angle follows, so the brightness doesn't change.
 - Goes to sleep (screen off, slow Bluetooth scan) when there's no camera, and wakes when it comes back.
 
@@ -57,8 +56,8 @@ Full shopping list with quantities and what to look for: [docs/hardware.md](docs
 5. **Pair:** turn on Bluetooth in the camera's Setup menu. The camera shows a 6-digit PIN; type it on
    the board. That's the only time you'll need it.
 
-Then read the [user guide](docs/user-guide.md) for everything on the screen and in Settings (tap the
-battery strip).
+Then read the [user guide](docs/user-guide.md) for everything on the screen and in Settings (the gear
+button, bottom left).
 
 ## Documentation
 

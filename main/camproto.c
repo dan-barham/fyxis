@@ -18,7 +18,6 @@
 //        with the mode changed (and, to start, the playback speed and loop flags cleared, so REC
 //        rolls a clip straight from playback).
 //        speed: playback, 0 paused, 1 normal, >1 faster, <0 backwards. flags: bit0 loop, bit1 play all.
-//   10.2 playback control    int8      0 = previous clip, 1 = next clip (one value; there's no frame step)
 // Timecode characteristic: 32-bit BCD HH:MM:SS:FF (09:12:53:10 = 0x09125310).
 
 #include <string.h>
@@ -391,31 +390,6 @@ int camproto_build_record(bool start, uint8_t out[32])
         camproto_unlock();
     }
     return len;
-}
-
-int camproto_build_transport(int mode, int speed, int loop, uint8_t out[32])
-{
-    cam_state_t st;
-    camproto_get(&st);
-    if (!st.connected || st.recording || mode < 0 || mode > 1) return 0;   // never records: that's REC's job
-    camproto_lock();
-    int32_t v[5];
-    for (int i = 0; i < 5; i++) v[i] = s_transport[i];
-    const bool full = s_have_transport;
-    camproto_unlock();
-    v[0] = mode;
-    v[1] = clampi(speed, -128, 127);
-    v[2] = (v[2] & ~3) | (loop & 3);
-    return camproto_build(10, 1, 1, v, full ? 5 : 3, out);
-}
-
-int camproto_build_clip_step(bool next, uint8_t out[32])
-{
-    cam_state_t st;
-    camproto_get(&st);
-    if (!st.connected || st.recording) return 0;
-    int32_t v = next ? 1 : 0;
-    return camproto_build(10, 2, 1, &v, 1, out);
 }
 
 int camproto_build_shutter_angle(int angle_x100, uint8_t out[32])

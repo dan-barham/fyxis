@@ -96,7 +96,7 @@ cd sim
 
 The first run installs SDL2 (Homebrew), downloads LVGL 9.3, and builds (about a minute).
 
-- **Mouse = finger.** Drag the knob under the timecode to lock or unlock; click the battery strip for Settings.
+- **Mouse = finger.** Drag the knob under the timecode to lock or unlock; click the gear button (bottom left) for Settings.
 - **Space bar = the physical REC button** (hold it for "Hold to stop").
 - **Live mode:** the first connection triggers the camera's PIN; type it into the **macOS** pairing box
   (the on-screen keypad is for the board). Edits you make are **sent to the camera** — that's the point.

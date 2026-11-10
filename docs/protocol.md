@@ -16,9 +16,12 @@ Service `291D567A-6D75-11E6-8B77-86F30CA893D3`; settings arrive as notifications
 | 10.1 flags | Card slots | bit 5 = slot 1, bit 6 = slot 2. Cleared on eject (the time isn't resent) |
 | 9.0 | Battery / DC input | int16: mV at the 2-pin LEMO (further fields logged by the simulator, not used yet) |
 | 10.1 | Transport mode | int8 ×5: mode (0 preview, 1 playback, 2 record), speed, flags, slot 1, slot 2. Record start/stop writes it back with the mode changed; starting also clears the speed and flag bits 0–1, so REC rolls a clip straight from playback (checked on the PYXIS) |
-| 10.2 | Playback control | int8, one value: 0 = previous clip, 1 = next clip (Blackmagic's protocol document; there is no frame step) |
+| 10.2 | Playback control | int8, one value: 0 = previous clip, 1 = next clip (Blackmagic's protocol document; there is no frame step). Not used |
 
-### Playback (tested on a PYXIS 12K, 9 Nov 2026, with the simulator's test keys)
+### Playback (tested on a PYXIS 12K, 9 Nov 2026; not used)
+
+FYXIS had playback controls for a while; they were removed because looping over Bluetooth was
+never reliable. What was found:
 
 - **Play / pause / speed:** 10.1 with mode 1 and a speed. 0 pauses; every speed tried works,
   forwards and backwards: ±1, 2, 4, 8, 16, 32. Playback runs across clip boundaries and stops at
@@ -34,8 +37,7 @@ Service `291D567A-6D75-11E6-8B77-86F30CA893D3`; settings arrive as notifications
 - **Loop / play all flags:** ignored. Whatever 10.1 flag bits 0 (loop) and 1 (play all) are set to,
   the camera plays on through every clip and stops at the end of the card; it never loops. It sets
   bit 1 itself while playing and clears it when paused. (An earlier note here said it stopped at the
-  end of each clip without the flags; a test on the first of two clips showed it doesn't.) So FYXIS
-  loops by itself: it sees the next clip start as a jump in the timecode and steps back.
+  end of each clip without the flags; a test on the first of two clips showed it doesn't.)
 - **Previous clip** goes to the start of the clip before, even from the end of a clip (it doesn't
   restart the current one); on the first clip, to its own start.
 - Playback only finds clips recorded in the camera's current format; right after formatting the
