@@ -1,9 +1,9 @@
 // Big Six side display for the PYXIS 12K — LVGL v9 UI.
 //
-// Layout:   FPS        | SHUTTER         | EI
-//           WB + TINT  | TIMECODE (two columns wide)
-//                      | status · cards  |
-//                      | slide to lock   | battery · settings
+// Layout:   FPS                | SHUTTER         | EI
+//           WB + TINT          | TIMECODE (two columns wide)
+//                              | status · cards  |
+//           presets · playback | slide to lock   | battery · settings
 //
 // Behaviour
 //  - Editing is unlocked at start-up (or locked: Settings > Display). Slide the knob under the
@@ -21,9 +21,8 @@
 //    values stay in grey and the tally is suppressed.
 //  - Tap the battery strip (bottom right) for Settings.
 //  - First connection: the camera shows a 6-digit PIN; a keypad appears here to enter it.
-//  - Playback: tap the card slots under the timecode (or press Play on the camera) for a playback
-//    screen: the clip's timecode, previous / next clip, play / pause, IN / OUT / LOOP, a shuttle
-//    strip (drag for -32x to 32x, let go to pause), and Live view.
+//  - Bottom left: Presets and Playback. Playback (or Play on the camera) opens a playback screen:
+//    the clip's timecode, previous / next clip, play / pause, loop, and Live view.
 //    The REC button always rolls a new clip, from playback too.
 //  - Exposure lock (Settings > Camera): a frame-rate change also moves the shutter angle, so the
 //    shutter speed, and so the brightness, stays the same. The shutter tile shows LOCKED.
@@ -130,7 +129,7 @@ static const char *TITLES[T_COUNT] = { "FPS", "SHUTTER", "EI", "WHITE BALANCE" }
 
 // ---------- objects ----------
 static lv_obj_t *s_tile[T_COUNT], *s_title[T_COUNT], *s_val[T_COUNT], *s_sub[T_COUNT];
-static lv_obj_t *s_tint_val;
+static lv_obj_t *s_btn_pre, *s_btn_pb;     // bottom left: Presets, Playback
 static lv_obj_t *s_tc_tile, *s_tc_cell[11], *s_tc_lbl;   // timecode: one fixed-width cell per character
 static lv_obj_t *s_status, *s_status_dot;               // under the timecode, left
 static lv_obj_t *s_slot_icon[2], *s_slot_num[2], *s_slot_lbl[2];   // under the timecode, right
@@ -1291,6 +1290,7 @@ static void pre_card_cb(lv_event_t *e)
 
 static void pre_done_cb(lv_event_t *e) { presets_close(); }
 
+// The Presets button.
 static void tc_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED || s_st.recording) return;
@@ -1395,12 +1395,14 @@ static void update_values(void)
     set_text_color(s_sub[T_FPS], (live && s_st.offspeed) ? C_ORANGE : C_TEXT2);
     set_text_color(s_sub[T_SHUT], (live && settings()->exp_lock && s_xl_short >= 0.1f) ? C_ORANGE : C_TEXT2);
 
-    fmt_tint(v, sizeof v, s_st.tint);                // tint lives in the WB tile
-    set_text(s_tint_val, s_st.have_data ? v : MINUS MINUS);
-    set_text_color(s_tint_val, live ? C_TEXT : C_STALE);
+    fmt_tint(v, sizeof v, s_st.tint);                // tint: the WB tile's bottom line
+    set_text(s_sub[T_WB], s_st.have_data ? v : MINUS MINUS);
+    set_text_color(s_sub[T_WB], live ? C_TEXT : C_STALE);
 
     update_tc();
     update_cards();
+    set_text_color(s_btn_pre, s_st.recording ? C_STALE : C_TEXT);
+    set_text_color(s_btn_pb, live && s_st.have_data && !s_st.recording ? C_TEXT : C_STALE);
     pin_show(s_st.need_pin);
     lock_sync(true);
     editor_refresh();
@@ -1528,55 +1530,31 @@ static void xl_tick(uint32_t now)
 }
 
 // ---------- playback ----------
-// Full screen, over everything but the record frame. Opens when the card slots are tapped (which
-// puts the camera into playback, paused) or when the camera goes into playback by itself, and
-// closes when it leaves playback: Live view, the REC button (which rolls a new clip), or the
-// camera's own buttons.
+// Full screen, over everything but the record frame. Opens from the Playback button (which puts
+// the camera into playback, paused on the last clip) or when the camera goes into playback by
+// itself, and closes when it leaves playback: Live view, the REC button (which rolls a new clip),
+// or the camera's own buttons.
 //
-// What the PYXIS does over Bluetooth (tested, docs/protocol.md): play / pause, any speed from
-// -32x to 32x, previous / next clip. It has no frame step, no seek to a position, and it ignores
-// the loop flags. So IN / OUT and loop are done here, from the clip's timecode: at OUT (or the end
-// of the card) the board shuttles back at 32x to IN (or the start), slowing near it, then plays.
-// That lands within a few frames of IN, a little early rather than late.
-enum { PB_PREV, PB_PLAY, PB_NEXT, PB_NBTN };
-enum { PBA_IN, PBA_OUT, PBA_LOOP, PBA_N };
-static const int SHUTTLE[] = { -32, -16, -8, -4, -2, -1, 0, 1, 2, 4, 8, 16, 32 };
-#define NSHUTTLE ((int)(sizeof SHUTTLE / sizeof SHUTTLE[0]))
-static lv_obj_t *s_pb, *s_pb_tc[11], *s_pb_state, *s_pb_marks, *s_pb_btn[PB_NBTN];
-static lv_obj_t *s_pb_act[PBA_N], *s_pb_act_lbl[PBA_N];
-static lv_obj_t *s_pb_sh, *s_pb_knob, *s_pb_knob_lbl;   // shuttle strip
-static int s_pb_sh_w, s_pb_knob_w;
+// What the PYXIS does over Bluetooth (tested, docs/protocol.md): play / pause, previous / next
+// clip. It ignores its loop flags, so LOOP is done here: when the camera stops at the end of the
+// card, the board steps back a clip at a time until the first one (the timecode stops changing),
+// then plays again.
+enum { PB_PREV, PB_PLAY, PB_NEXT, PB_LOOP, PB_NBTN };
+static lv_obj_t *s_pb, *s_pb_tc[11], *s_pb_state, *s_pb_btn[PB_NBTN], *s_pb_loop_lbl;
 static int s_pb_mode_seen = -1;           // transport mode last tick
 static uint32_t s_pb_opened;              // when we asked for playback (closing waits for the camera)
 static int s_pb_want;                     // speed we asked for (0 = paused)
-static bool s_pb_dragging;                // finger on the shuttle
-static int32_t s_pb_in = -1, s_pb_out = -1;   // marks, frames since midnight (-1 = not set)
 static bool s_pb_loop;
-enum { SEEK_NONE, SEEK_BACK, SEEK_SETTLE };
-static int s_pb_seek;                     // returning to IN / the start
-static int32_t s_pb_last_f = -1;          // timecode last seen while playing, and when it last moved
-static uint32_t s_pb_last_move;
+static bool s_pb_rewind;                  // looping: stepping back to the first clip
+static int32_t s_pb_last_f = -1;          // timecode last seen, and when it last changed
+static uint32_t s_pb_last_move, s_pb_step_ms;
 
 static bool pb_shown(void) { return s_pb && !lv_obj_has_flag(s_pb, LV_OBJ_FLAG_HIDDEN); }
 
-static int pb_fps(void)
-{
-    const int f = s_st.project_fps;
-    return f > 0 ? f : 24;
-}
-
-static int32_t pb_frames(void)            // the camera's timecode, as frames (-1 = none)
+static int32_t pb_frames(void)            // the camera's timecode as one number (-1 = none)
 {
     if (!s_st.tc_valid) return -1;
-    return ((s_st.tc_h * 60 + s_st.tc_m) * 60 + s_st.tc_s) * pb_fps() + s_st.tc_f;
-}
-
-static void pb_fmt(char *b, size_t n, int32_t f)
-{
-    const int fps = pb_fps();
-    if (f < 0) { snprintf(b, n, MINUS MINUS); return; }
-    const int32_t s = f / fps;
-    snprintf(b, n, "%02d:%02d:%02d:%02d", (int)(s / 3600 % 100), (int)(s / 60 % 60), (int)(s % 60), (int)(f % fps));
+    return ((s_st.tc_h * 60 + s_st.tc_m) * 60 + s_st.tc_s) * 100 + s_st.tc_f;
 }
 
 static void pb_speed(int sp)               // ask for a speed (0 = pause)
@@ -1595,34 +1573,20 @@ static void pb_render(void)
         const char ch[2] = { tc[i], 0 };
         set_text(s_pb_tc[i], ch);
     }
-    const int sp = s_st.transport_speed;
     const bool in_pb = s_st.transport_mode == 1;
-    char b[64];
-    if (!in_pb)                  snprintf(b, sizeof b, "OPENING" ELLIPSIS);
-    else if (s_pb_seek)          snprintf(b, sizeof b, "BACK TO %s", s_pb_in >= 0 ? "IN" : "START");
-    else if (sp == 0)            snprintf(b, sizeof b, "PAUSED");
-    else if (sp == 1)            snprintf(b, sizeof b, "PLAYING");
-    else if (sp > 0)             snprintf(b, sizeof b, "FORWARD %dx", sp);
-    else                         snprintf(b, sizeof b, "REVERSE %dx", -sp);
-    set_text(s_pb_state, b);
-    set_text_color(s_pb_state, in_pb && (sp != 0 || s_pb_seek) ? C_TEXT : C_TEXT2);
-
-    char i[48], o[48];
-    pb_fmt(i, sizeof i, s_pb_in);
-    pb_fmt(o, sizeof o, s_pb_out);
-    snprintf(b, sizeof b, "IN %.12s   " MIDDOT "   OUT %.12s", i, o);
-    set_text(s_pb_marks, b);
-    set_bg(s_pb_act[PBA_IN], s_pb_in >= 0 ? C_SEG_ON : C_BTN);
-    set_bg(s_pb_act[PBA_OUT], s_pb_out >= 0 ? C_SEG_ON : C_BTN);
-    set_bg(s_pb_act[PBA_LOOP], s_pb_loop ? C_BLUE : C_BTN);
+    const bool playing = in_pb && s_st.transport_speed != 0;
+    set_text(s_pb_state, !in_pb ? "OPENING" ELLIPSIS : s_pb_rewind ? "BACK TO THE FIRST CLIP" :
+                         playing ? (s_pb_loop ? "PLAYING " MIDDOT " LOOP" : "PLAYING") : "PAUSED");
+    set_text_color(s_pb_state, playing || s_pb_rewind ? C_TEXT : C_TEXT2);
+    set_bg(s_pb_btn[PB_LOOP], s_pb_loop ? C_BLUE : C_BTN);
+    set_text(s_pb_loop_lbl, s_pb_loop ? "LOOP ON" : "LOOP");
     lv_obj_invalidate(s_pb_btn[PB_PLAY]);         // its icon is play or pause
 }
 
 static void pb_close(void)
 {
     if (s_pb) set_shown(s_pb, false);
-    s_pb_seek = SEEK_NONE;
-    s_pb_dragging = false;
+    s_pb_rewind = false;
 }
 
 static void pb_show(void)
@@ -1635,7 +1599,7 @@ static void pb_show(void)
     pb_render();
 }
 
-// Tap on the card slots.
+// The Playback button on the main screen.
 static void pb_open_cb(lv_event_t *e)
 {
     (void)e;
@@ -1649,34 +1613,12 @@ static void pb_open_cb(lv_event_t *e)
 static void pb_btn_cb(lv_event_t *e)
 {
     const int k = (int)(intptr_t)lv_event_get_user_data(e);
-    s_pb_seek = SEEK_NONE;
+    s_pb_rewind = false;
     switch (k) {
     case PB_PREV: camera_playback_clip(-1); s_pb_want = 0; break;
     case PB_NEXT: camera_playback_clip(1);  s_pb_want = 0; break;
-    case PB_PLAY:
-        if (s_st.transport_speed != 0) { pb_speed(0); break; }
-        // Play. At or past OUT with a loop or an IN set, start from IN.
-        if (s_pb_out >= 0 && pb_frames() >= s_pb_out && (s_pb_in >= 0 || s_pb_loop)) {
-            s_pb_seek = SEEK_BACK;
-            camera_playback(1, -32);
-            s_pb_want = 1;
-        } else {
-            pb_speed(1);
-        }
-        break;
-    }
-}
-
-// IN / OUT: tap to mark the timecode now, tap again (or hold) to clear. LOOP: on / off.
-static void pb_act_cb(lv_event_t *e)
-{
-    const int k = (int)(intptr_t)lv_event_get_user_data(e);
-    const int32_t now = pb_frames();
-    if (k == PBA_LOOP) { s_pb_loop = !s_pb_loop; pb_render(); return; }
-    int32_t *m = k == PBA_IN ? &s_pb_in : &s_pb_out;
-    *m = (*m >= 0 || now < 0) ? -1 : now;
-    if (s_pb_in >= 0 && s_pb_out >= 0 && s_pb_out < s_pb_in) {    // keep them in order
-        const int32_t t = s_pb_in; s_pb_in = s_pb_out; s_pb_out = t;
+    case PB_PLAY: pb_speed(s_st.transport_speed != 0 ? 0 : 1); break;
+    case PB_LOOP: s_pb_loop = !s_pb_loop; break;
     }
     pb_render();
 }
@@ -1688,73 +1630,24 @@ static void pb_live_cb(lv_event_t *e)
     pb_close();
 }
 
-// Shuttle: drag from the middle; the further, the faster (to 32x either way). Let go: pause.
-static void pb_knob_to(int x)
+// Loop, driven by what the camera reports.
+static void pb_loop_tick(uint32_t now)
 {
-    const int lo = 6, hi = s_pb_sh_w - s_pb_knob_w - 6;
-    lv_obj_set_x(s_pb_knob, x < lo ? lo : x > hi ? hi : x);
-}
-
-static void pb_shuttle_cb(lv_event_t *e)
-{
-    const lv_event_code_t code = lv_event_get_code(e);
-    lv_indev_t *in = lv_indev_active();
-    if (!in) return;
-    lv_point_t p;
-    lv_indev_get_point(in, &p);
-    lv_area_t a;
-    lv_obj_get_coords(s_pb_sh, &a);
-    const int mid = s_pb_sh_w / 2;
-    if (code == LV_EVENT_PRESSED) { s_pb_dragging = true; s_pb_seek = SEEK_NONE; }
-    if (code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING) {
-        const int dx = p.x - a.x1 - mid;
-        pb_knob_to(mid + dx - s_pb_knob_w / 2);
-        // 13 positions across the strip; a dead zone in the middle is pause.
-        const int half = mid - s_pb_knob_w / 2;
-        int idx = NSHUTTLE / 2 + (dx * (NSHUTTLE / 2) + (dx > 0 ? half / 2 : -half / 2)) / half;
-        idx = idx < 0 ? 0 : idx >= NSHUTTLE ? NSHUTTLE - 1 : idx;
-        const int sp = SHUTTLE[idx];
-        char b[16];
-        if (sp) snprintf(b, sizeof b, "%s%dx", sp < 0 ? MINUS : "", (sp < 0 ? -sp : sp) % 100);
-        set_text(s_pb_knob_lbl, sp ? b : "||");
-        if (sp != s_pb_want) pb_speed(sp);
-    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        s_pb_dragging = false;
-        pb_knob_to(mid - s_pb_knob_w / 2);
-        set_text(s_pb_knob_lbl, "SHUTTLE");
-        pb_speed(0);
-    }
-}
-
-// Marks and loop, driven by the timecode the camera sends while it plays.
-static void pb_marks_tick(uint32_t now)
-{
-    if (s_st.transport_mode != 1 || s_pb_dragging) { s_pb_seek = SEEK_NONE; return; }
+    if (s_st.transport_mode != 1) { s_pb_rewind = false; return; }
     const int32_t f = pb_frames();
-    if (f < 0) return;
     if (f != s_pb_last_f) { s_pb_last_f = f; s_pb_last_move = now; }
-    const int fps = pb_fps();
-
-    if (s_pb_seek == SEEK_BACK) {
-        // Back at 32x, 4x for the last 3 s, then play. With no IN, until the camera stops at the start.
-        const bool stopped = s_st.transport_speed == 0 && now - s_pb_last_move > 400;
-        if (s_pb_in >= 0 && f <= s_pb_in) { s_pb_seek = SEEK_NONE; pb_speed(1); }
-        else if (s_pb_in < 0 && stopped) { s_pb_seek = SEEK_NONE; pb_speed(1); }
-        else if (stopped && s_pb_in >= 0) { s_pb_seek = SEEK_NONE; pb_speed(1); }   // start of card before IN
-        else if (s_pb_in >= 0 && f <= s_pb_in + 3 * fps && s_st.transport_speed < -4) camera_playback(1, -4);
+    if (s_pb_rewind) {
+        // A step back moves the timecode to the previous clip's start; when one doesn't, this is
+        // the first clip: play.
+        if (s_pb_last_move > s_pb_step_ms) { camera_playback_clip(-1); s_pb_step_ms = now; }
+        else if (now - s_pb_step_ms > 800) { s_pb_rewind = false; pb_speed(1); }
         return;
     }
-    if (s_pb_want <= 0) return;                    // only while playing forward
-    const bool at_out = s_pb_out >= 0 && f >= s_pb_out && (s_pb_in < 0 || f >= s_pb_in);
-    const bool at_end = s_st.transport_speed == 0 && now - s_pb_last_move > 600;   // the camera stopped by itself
-    if (!at_out && !at_end) return;
-    if (s_pb_loop) {
-        s_pb_seek = SEEK_BACK;
-        camera_playback(1, -32);
-    } else if (at_out) {
-        pb_speed(0);                               // OUT without loop: stop there
-    } else {
-        s_pb_want = 0;                             // the end of the card
+    // Playing, and the camera stopped by itself: the end of the card.
+    if (s_pb_loop && s_pb_want > 0 && s_st.transport_speed == 0 && now - s_pb_last_move > 600) {
+        s_pb_rewind = true;
+        camera_playback_clip(-1);
+        s_pb_step_ms = now;
     }
 }
 
@@ -1767,7 +1660,7 @@ static void pb_tick(uint32_t now)
         s_pb_mode_seen = mode;
     }
     if (pb_shown() && mode != 1 && now - s_pb_opened > 2000) pb_close();   // asked, but no playback came
-    if (pb_shown()) pb_marks_tick(now);
+    if (pb_shown()) pb_loop_tick(now);
     pb_render();
 }
 
@@ -1790,7 +1683,7 @@ static void pb_bar(lv_layer_t *layer, int x, int y, int w, int h)
     lv_draw_rect_dsc_init(&d);
     d.bg_color = C_TEXT;
     d.bg_opa = LV_OPA_COVER;
-    d.radius = 2;
+    d.radius = 3;
     const lv_area_t a = { x, y, x + w - 1, y + h - 1 };
     lv_draw_rect(layer, &d, &a);
 }
@@ -1811,7 +1704,7 @@ static void pb_icon_cb(lv_event_t *e)
     lv_area_t c;
     lv_obj_get_coords(o, &c);
     const int cx = (c.x1 + c.x2) / 2, cy = (c.y1 + c.y2) / 2;
-    const int a = k == PB_PLAY ? 22 : 16;            // half height
+    const int a = 26;                                 // half height
     const int w = rw(a * 2) * 7 / 8, bar = rw(a / 2);
     switch (k) {
     case PB_PLAY:
@@ -2307,10 +2200,9 @@ static void build_settings(lv_obj_t *scr, int W, int H)
     lv_obj_add_flag(s_set, LV_OBJ_FLAG_HIDDEN);
 }
 
-// Playback screen.
+// Playback screen: the clip's timecode, and four big buttons.
 static void build_playback(lv_obj_t *scr, int W, int H)
 {
-    (void)H;
     s_pb = box(scr);
     lv_obj_set_size(s_pb, W, H);
     lv_obj_set_style_bg_color(s_pb, C_BG, 0);
@@ -2318,10 +2210,10 @@ static void build_playback(lv_obj_t *scr, int W, int H)
     lv_obj_add_flag(s_pb, LV_OBJ_FLAG_CLICKABLE);                // swallow touches behind it
 
     lv_obj_t *title = caption(s_pb, "PLAYBACK");
-    lv_obj_set_pos(title, 28, 30);
-    lv_obj_t *live = pill(s_pb, "Live view", C_BTN);
-    lv_obj_set_size(live, 180, 50);
-    lv_obj_set_pos(live, W - 24 - 180, 16);
+    lv_obj_set_pos(title, 28, 34);
+    lv_obj_t *live = pill(s_pb, "Live view", C_BLUE);
+    lv_obj_set_size(live, 220, 64);
+    lv_obj_set_pos(live, W - 20 - 220, 16);
     lv_obj_add_event_cb(live, pb_live_cb, LV_EVENT_CLICKED, NULL);
 
     int dig_w = 0;                                               // fixed cells, as on the main screen
@@ -2336,75 +2228,38 @@ static void build_playback(lv_obj_t *scr, int W, int H)
         s_pb_tc[i] = text(s_pb, &font_value_64, C_TEXT);
         lv_obj_set_size(s_pb_tc[i], w, LV_SIZE_CONTENT);
         lv_obj_set_style_text_align(s_pb_tc[i], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(s_pb_tc[i], x, 62);
+        lv_obj_set_pos(s_pb_tc[i], x, 100);
         x += w;
     }
     s_pb_state = caption(s_pb, "");
     lv_obj_set_width(s_pb_state, W);
     lv_obj_set_style_text_align(s_pb_state, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_pb_state, 0, 146);
-    s_pb_marks = text(s_pb, &font_label_20, C_TEXT2);
-    lv_obj_set_width(s_pb_marks, W);
-    lv_obj_set_style_text_align(s_pb_marks, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_pb_marks, 0, 176);
+    lv_obj_set_pos(s_pb_state, 0, 190);
 
-    // Transport (left) and marks (right), on one row.
-    const int b = 92, big = 112, gap = 18, cy = 276;
-    x = 28;
+    // Previous, play / pause, next, loop: big rounded buttons across the bottom.
+    const int gap = 14, bw = (W - 2 * 20 - 3 * gap) / 4, bh = 176;
+    x = 20;
     for (int k = 0; k < PB_NBTN; k++) {
-        const int h = k == PB_PLAY ? big : b;
         lv_obj_t *o = box(s_pb);
-        lv_obj_set_size(o, rw(h), h);
-        lv_obj_set_pos(o, x, cy - h / 2);
-        lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(o, k == PB_PLAY ? C_BLUE : C_BTN, 0);
+        lv_obj_set_size(o, bw, bh);
+        lv_obj_set_pos(o, x, H - 20 - bh);
+        lv_obj_set_style_radius(o, RADIUS, 0);
+        lv_obj_set_style_bg_color(o, k == PB_PLAY ? C_BTN_PR : C_BTN, 0);
         lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(o, C_BTN_PR, LV_STATE_PRESSED);
+        lv_obj_set_style_bg_color(o, C_SEG_ON, LV_STATE_PRESSED);
         lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(o, pb_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
-        lv_obj_add_event_cb(o, pb_icon_cb, LV_EVENT_DRAW_MAIN_END, (void *)(intptr_t)k);
+        if (k == PB_LOOP) {
+            s_pb_loop_lbl = text(o, &font_label_20, C_TEXT);
+            lv_obj_set_style_text_letter_space(s_pb_loop_lbl, 1, 0);
+            lv_label_set_text(s_pb_loop_lbl, "LOOP");
+            lv_obj_center(s_pb_loop_lbl);
+        } else {
+            lv_obj_add_event_cb(o, pb_icon_cb, LV_EVENT_DRAW_MAIN_END, (void *)(intptr_t)k);
+        }
         s_pb_btn[k] = o;
-        x += rw(h) + gap;
+        x += bw + gap;
     }
-    static const char *ACT[PBA_N] = { "IN", "OUT", "LOOP" };
-    const int aw = 118, ah = 60, ag = 14;
-    x = W - 28 - PBA_N * aw - (PBA_N - 1) * ag;
-    for (int k = 0; k < PBA_N; k++) {
-        s_pb_act[k] = pill(s_pb, ACT[k], C_BTN);
-        lv_obj_set_size(s_pb_act[k], aw, ah);
-        lv_obj_set_pos(s_pb_act[k], x, cy - ah / 2);
-        lv_obj_add_event_cb(s_pb_act[k], pb_act_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
-        s_pb_act_lbl[k] = lv_obj_get_child(s_pb_act[k], 0);
-        x += aw + ag;
-    }
-
-    // Shuttle strip along the bottom.
-    s_pb_sh_w = W - 56;
-    s_pb_sh = box(s_pb);
-    lv_obj_set_size(s_pb_sh, s_pb_sh_w, 76);
-    lv_obj_set_pos(s_pb_sh, 28, H - 28 - 76);
-    lv_obj_set_style_bg_color(s_pb_sh, C_TILE, 0);
-    lv_obj_set_style_bg_opa(s_pb_sh, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(s_pb_sh, LV_RADIUS_CIRCLE, 0);
-    lv_obj_add_flag(s_pb_sh, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
-    lv_obj_add_event_cb(s_pb_sh, pb_shuttle_cb, LV_EVENT_ALL, NULL);
-    static const char *TICK[] = { "-32", "-8", "-2", "", "2", "8", "32" };   /* 14 px font: ASCII only */
-    for (int i = 0; i < 7; i++) {
-        lv_obj_t *t = text(s_pb_sh, &font_label_14, C_TEXT2);
-        lv_label_set_text(t, TICK[i]);
-        lv_obj_align(t, LV_ALIGN_LEFT_MID, 36 + i * (s_pb_sh_w - 90) / 6, 0);
-    }
-    s_pb_knob_w = 140;
-    s_pb_knob = box(s_pb_sh);
-    lv_obj_set_size(s_pb_knob, s_pb_knob_w, 64);
-    lv_obj_set_pos(s_pb_knob, (s_pb_sh_w - s_pb_knob_w) / 2, 6);
-    lv_obj_set_style_bg_color(s_pb_knob, C_TEXT, 0);
-    lv_obj_set_style_bg_opa(s_pb_knob, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(s_pb_knob, LV_RADIUS_CIRCLE, 0);
-    s_pb_knob_lbl = text(s_pb_knob, &font_label_20, C_BG);
-    lv_obj_set_style_text_letter_space(s_pb_knob_lbl, 1, 0);
-    lv_label_set_text(s_pb_knob_lbl, "SHUTTLE");
-    lv_obj_center(s_pb_knob_lbl);
 
     lv_obj_add_flag(s_pb, LV_OBJ_FLAG_HIDDEN);
 }
@@ -2467,9 +2322,10 @@ static void build(void)
     const int th = (H - 2 * MARGIN - GAP) / 2;
     const int x2 = MARGIN + tw + GAP, x3 = MARGIN + 2 * (tw + GAP), y2 = MARGIN + th + GAP;
 
+    const int short_h = th - LOCK_H - GAP;                         // WB and timecode tiles
     for (int t = 0; t < T_COUNT; t++) {
         lv_obj_t *tile = box(scr);
-        lv_obj_set_size(tile, tw, th);
+        lv_obj_set_size(tile, tw, t == T_WB ? short_h : th);
         lv_obj_set_pos(tile, MARGIN + (t % 3) * (tw + GAP), MARGIN + (t / 3) * (th + GAP));
         lv_obj_set_style_bg_color(tile, C_TILE, 0);
         lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
@@ -2483,35 +2339,32 @@ static void build(void)
         s_title[t] = caption(tile, TITLES[t]);
         lv_obj_align(s_title[t], LV_ALIGN_TOP_MID, 0, 16 - OUTLINE);
         s_val[t] = text(tile, &font_value_64, C_TEXT);
-        lv_obj_align(s_val[t], LV_ALIGN_CENTER, 0, t == T_WB ? -12 : 0);
+        lv_obj_align(s_val[t], LV_ALIGN_CENTER, 0, 0);
         s_sub[t] = caption(tile, "");
         lv_obj_align(s_sub[t], LV_ALIGN_BOTTOM_MID, 0, -(16 - OUTLINE));
         lv_obj_add_event_cb(tile, tile_cb, LV_EVENT_ALL, (void *)(intptr_t)t);
     }
 
-    // Tint row inside the WB tile: "TINT +25", the caption and value on a shared baseline.
-    lv_obj_t *tint_row = box(s_tile[T_WB]);
-    lv_obj_set_size(tint_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(tint_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(tint_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    lv_obj_set_style_pad_column(tint_row, 12, 0);
-    lv_obj_remove_flag(tint_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(tint_row, LV_ALIGN_BOTTOM_MID, 0, -(10 - OUTLINE));
-    lv_obj_t *tint_title = caption(tint_row, "TINT");
-    lv_obj_set_style_pad_bottom(tint_title, 7, 0);                // lift to the value's baseline
-    s_tint_val = text(tint_row, &font_mid_36, C_TEXT);
+    // WB tile, laid out like the timecode tile beside it: the value on top, "WB · TINT +2" under it.
+    lv_obj_align(s_val[T_WB], LV_ALIGN_TOP_MID, 0, 6 - OUTLINE);
+    lv_obj_t *wb_row = box(s_tile[T_WB]);
+    lv_obj_set_size(wb_row, LV_SIZE_CONTENT, 26);
+    lv_obj_set_flex_flow(wb_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(wb_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(wb_row, 10, 0);
+    lv_obj_align(wb_row, LV_ALIGN_BOTTOM_MID, 0, -(14 - OUTLINE));
+    lv_obj_set_parent(s_title[T_WB], wb_row);
+    lv_label_set_text(s_title[T_WB], "WB  " MIDDOT "  TINT");
+    lv_obj_set_parent(s_sub[T_WB], wb_row);
 
     // ---- Timecode tile: two columns wide, above the lock track and the battery strip ----
-    const int tc_w = 2 * tw + GAP, tc_h = th - LOCK_H - GAP;
+    const int tc_w = 2 * tw + GAP, tc_h = short_h;
     s_tc_tile = box(scr);
     lv_obj_set_size(s_tc_tile, tc_w, tc_h);
     lv_obj_set_pos(s_tc_tile, x2, y2);
     lv_obj_set_style_bg_color(s_tc_tile, C_TILE, 0);
     lv_obj_set_style_bg_opa(s_tc_tile, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(s_tc_tile, RADIUS, 0);
-    lv_obj_set_style_bg_color(s_tc_tile, C_TILE_PR, LV_STATE_PRESSED);
-    lv_obj_add_flag(s_tc_tile, LV_OBJ_FLAG_CLICKABLE);              // tap: presets
-    lv_obj_add_event_cb(s_tc_tile, tc_cb, LV_EVENT_SHORT_CLICKED, NULL);
 
     // Fixed-width cells, placed by hand (no layout pass), so digits never shuffle as they count.
     int dig_w = 0;
@@ -2557,9 +2410,6 @@ static void build(void)
 
     lv_obj_t *slot_row = box(s_tc_tile);
     lv_obj_set_size(slot_row, slot_w, 26);
-    lv_obj_set_ext_click_area(slot_row, 14);                      // a bigger target than the text
-    lv_obj_add_flag(slot_row, LV_OBJ_FLAG_CLICKABLE);              // tap: playback
-    lv_obj_add_event_cb(slot_row, pb_open_cb, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_set_flex_flow(slot_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(slot_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(slot_row, 12, 0);
@@ -2621,6 +2471,24 @@ static void build(void)
     lv_obj_set_style_radius(s_lk_knob, LV_RADIUS_CIRCLE, 0);
     s_lk_icon = text(s_lk_knob, &font_icons_28, C_BG);
     lock_sync(false);
+
+    // ---- Presets and Playback (bottom left, under the WB tile) ----
+    const int hb = (tw - GAP) / 2;
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *b = box(scr);
+        lv_obj_set_size(b, hb, LOCK_H);
+        lv_obj_set_pos(b, MARGIN + i * (hb + GAP), H - MARGIN - LOCK_H);
+        lv_obj_set_style_bg_color(b, C_TILE, 0);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(b, C_TILE_PR, LV_STATE_PRESSED);
+        lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+        lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(b, i ? pb_open_cb : tc_cb, LV_EVENT_SHORT_CLICKED, NULL);
+        lv_obj_t *l = text(b, &font_label_20, C_TEXT);
+        lv_label_set_text(l, i ? "Playback" : "Presets");
+        lv_obj_center(l);
+        if (i) s_btn_pb = l; else s_btn_pre = l;
+    }
 
     // ---- Battery strip (tap for Settings) ----
     s_bat = box(scr);

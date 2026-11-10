@@ -26,8 +26,9 @@ Service `291D567A-6D75-11E6-8B77-86F30CA893D3`; settings arrive as notifications
 - **Clip steps:** 10.2 with 0 goes to the start of the previous clip, 1 to the start of the next,
   paused; nothing happens at either end of the card. (An earlier version sent two values, so both
   buttons meant "previous" and next-clip did nothing.)
-- **Timecode:** while in playback, the Timecode characteristic sends the clip's own timecode. That
-  is how FYXIS does IN / OUT and loop, since there is no seek to a position over Bluetooth.
+- **Timecode:** while in playback, the Timecode characteristic sends the clip's own timecode. There
+  is no seek to a position over Bluetooth. (IN / OUT marks done from the timecode, by shuttling back
+  at 32×, were tried and weren't reliable enough, so they were dropped.)
 - **REC from playback:** the REC packet (mode 2, speed 0, flag bits 0–1 cleared) goes straight from
   playback to recording in one press.
 - **Ignored:** the loop and play-all flags (10.1 flag bits 0 and 1). With either or both set, the
