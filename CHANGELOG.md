@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Editors:** quick-pick chips in every editor (shutter angles and speeds, EIs, white balances, as
+  well as frame rates), bigger Done and Custom buttons, and more room between each heading and its value.
+- **Frame rates:** rates the camera can't do at the current resolution are greyed out, and − / + and
+  Custom stop at the maximum (from Blackmagic's PYXIS 12K specs).
 - **Main screen:** Presets (bookmarks) and Settings (gear) buttons, bottom left, the same size,
   instead of tapping the timecode for presets and the battery strip for Settings. The white balance
   tile is laid out like the timecode tile: `5600K`, then `WB · TINT 0`.

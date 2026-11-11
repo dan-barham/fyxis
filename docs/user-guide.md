@@ -74,14 +74,20 @@
   - − / + one frame at a time.
   - Quick chips: **OFF · 30 · 36 · 48 · 50 · 60 · 72 · 96 · 120** (OFF = back to the project rate).
   - **Custom:** keypad for any whole frame rate; typing the project rate turns off-speed off.
-  - Rates above what the camera allows at the current resolution are refused by the camera.
+  - Rates above the camera's maximum at the current resolution are greyed out, and − / + and Custom
+    stop there (Blackmagic's figures: 12K 17:9 up to 50 fps, 8K / 4K 16:9 up to 84, 8K / 4K 2.4:1 up
+    to 112, and so on). A resolution not in the table allows up to 120.
 - **Shutter editor:** an **ANGLE | SPEED** switch at the top.
   - Angle: − / + step through 11.2°, 15°, 22.5°, 30°, 37.5°, 45°, 60°, 72°, 75°, 90°, 108°, 120°, 144°,
     150°, 172.8°, 180°, 216°, 270°, 324°, 360°.
   - Speed: − / + step through 1/24 … 1/5000 in third-stop steps.
+  - Quick chips: angle **45° · 90° · 144° · 172.8° · 180° · 216° · 270° · 360°**, speed **1/48 · 1/50 ·
+    1/60 · 1/96 · 1/100 · 1/120 · 1/250 · 1/500** (speeds slower than one frame are greyed out).
   - **Custom:** keypad for an exact angle (up to two decimals) or 1/x speed.
   - Speeds are sent as the matching angle for the current frame rate (the PYXIS works in angle
     mode), so 1/50 at 23.98 becomes 172.63°. The screen shows the speed you asked for.
+- **EI editor:** chips **200 · 400 · 640 · 800 · 1000 · 1250 · 1600 · 3200**.
+- **White balance editor:** chips **3200K · 4000K · 4300K · 5000K · 5600K · 6500K · 7500K** (tint stays as set).
 - Steps: WB 100 K (50 / 100 / 200 K in Settings › Camera), tint 1, ISO 125 … 3200.
 - **Pair a different camera:** Settings › Camera › **Forget camera** (tap twice to confirm).
 

@@ -286,12 +286,28 @@ int camproto_build(int cat, int par, int type, const int32_t *vals, int n, uint8
     return total + ((4 - (total & 3)) & 3);
 }
 
+// Highest recording rate at each sensor area, from Blackmagic's PYXIS 12K tech specs ("maximum
+// sensor frame rate dependent on resolution selected"). Areas not listed: up to 120.
+static const struct { int w, h, fps; } MAX_FPS[] = {
+    { 12288, 8040, 40 }, { 12288, 6912, 45 }, { 12288, 6480, 50 }, { 12288, 5112, 60 }, { 9648, 8040, 40 },   // 12K
+    { 9408, 6264, 50 },  { 8688, 4896, 65 },  { 9312, 4896, 65 },  { 9312, 3864, 80 },  { 7680, 6408, 50 },   // 9K
+    { 8192, 5360, 72 },  { 8192, 4608, 84 },  { 8192, 4320, 90 },  { 8192, 3408, 112 }, { 6432, 5360, 72 },   // 8K
+    { 4096, 2680, 72 },  { 4096, 2304, 84 },  { 4096, 2160, 90 },  { 4096, 1704, 112 }, { 3216, 2680, 72 },   // 4K
+};
+
+int camproto_max_fps(int w, int h)
+{
+    for (size_t i = 0; i < sizeof MAX_FPS / sizeof MAX_FPS[0]; i++)
+        if (MAX_FPS[i].w == w && MAX_FPS[i].h == h) return MAX_FPS[i].fps;
+    return 120;
+}
+
 // Recording (sensor) rate. The project rate is never changed: the project rate itself means
 // off-speed off (sensor follows the project, including 23.98 etc.); anything else is off-speed.
 static int fps_packet(const cam_state_t *st, int fps, uint8_t out[32])
 {
     const int cur = st->offspeed ? st->offspeed_fps : st->project_fps;
-    if (fps < 1 || fps > 120 || fps == cur) return 0;
+    if (fps < 1 || fps > camproto_max_fps(st->res_w, st->res_h) || fps == cur) return 0;
     const int pm = st->project_mrate ? 1 : 0;
     int32_t v[5] = { st->project_fps, fps, st->res_w, st->res_h, 0 };
     v[4] = (fps == st->project_fps) ? (pm | (pm << 1)) : (pm | 4);
@@ -362,7 +378,7 @@ int camproto_build_step(cam_param_t p, int dir, uint8_t out[32])
     }
     case CAM_FPS: {
         const int cur = st.offspeed ? st.offspeed_fps : st.project_fps;
-        return fps_packet(&st, clampi(cur + dir, 1, 120), out);
+        return fps_packet(&st, clampi(cur + dir, 1, camproto_max_fps(st.res_w, st.res_h)), out);
     }
     }
     return 0;

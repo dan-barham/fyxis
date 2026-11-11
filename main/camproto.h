@@ -27,7 +27,11 @@ int camproto_build_step(cam_param_t p, int dir, uint8_t out[32]);
 int camproto_build_shutter_angle(int angle_x100, uint8_t out[32]);
 int camproto_build_shutter_speed(int denom, uint8_t out[32]);
 
-// Exact recording frame rate (1..120, whole frames). The project rate turns off-speed off;
+// Highest recording frame rate at a sensor area (width x height), per Blackmagic's specs.
+// 120 for an area that isn't in the table.
+int camproto_max_fps(int w, int h);
+
+// Exact recording frame rate (1..camproto_max_fps, whole frames). The project rate turns off-speed off;
 // any other rate turns it on. The project rate itself is never changed.
 int camproto_build_fps(int fps, uint8_t out[32]);
 

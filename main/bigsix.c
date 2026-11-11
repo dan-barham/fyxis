@@ -11,8 +11,10 @@
 //    editor; tapping a tile while locked nudges the knob as a hint.
 //  - Editors show the value very large with round − / + buttons (hold to repeat) and Done.
 //    White balance and tint share one editor. The shutter editor has an ANGLE | SPEED switch
-//    and Custom, a keypad for an exact angle or 1/x speed. The FPS editor has quick off-speed
-//    chips (OFF = back to the project rate) and Custom.
+//    and Custom, a keypad for an exact angle or 1/x speed. The FPS editor has Custom too. Every
+//    editor has a row of quick-pick chips (FPS: OFF = back to the project rate); ones the camera
+//    can't do now (a frame rate above the resolution's maximum, a speed slower than one frame)
+//    are greyed out.
 //  - REC is the physical button (recbutton.c). While recording: a red frame drawn over
 //    everything (nothing moves), editing blocked, and the status line runs a clip timer. The
 //    frame appears dimmed the moment the button is pressed and goes solid when the camera
@@ -117,6 +119,11 @@ static int rw(int h) { return (h * PX_W_PER_1000_H + 500) / 1000; }
 #define OUTLINE    3       // tile border, kept transparent (insets the content consistently)
 #define LOCK_H     72      // slide-to-lock track and battery strip height
 #define TC_PAD     18      // timecode tile: side padding
+#define ED_BTN_W   240     // editor: Done / Custom
+#define ED_BTN_H   76
+#define ED_BTN_GAP 20
+#define ED_BOTTOM  14      // editor: Done above the bottom edge
+#define CHIP_H     60      // editor: quick-pick chips
 
 #define MINUS "\xE2\x88\x92"   // U+2212
 #define MIDDOT "\xC2\xB7"      // U+00B7
@@ -131,10 +138,11 @@ static lv_obj_t *s_tile[T_COUNT], *s_title[T_COUNT], *s_val[T_COUNT], *s_sub[T_C
 static lv_obj_t *s_btn_pre, *s_btn_set;    // bottom left: Presets, Settings (icon labels)
 static lv_obj_t *s_tc_tile, *s_tc_cell[11], *s_tc_lbl;   // timecode: one fixed-width cell per character
 static lv_obj_t *s_status, *s_status_dot;               // under the timecode, left
+static lv_obj_t *s_st_row, *s_slot_row, *s_milestone;   // bottom line of the timecode tile; take milestone
 static lv_obj_t *s_slot_icon[2], *s_slot_num[2], *s_slot_lbl[2];   // under the timecode, right
 static lv_obj_t *s_tally[4];                            // record frame: top, bottom, left, right
 
-typedef struct { lv_obj_t *box, *label, *value, *sub, *minus, *plus; cam_param_t param; } row_t;
+typedef struct { lv_obj_t *box, *label, *value, *sub, *minus, *plus; cam_param_t param; int vc; } row_t;
 static lv_obj_t *s_editor, *s_done, *s_custom;
 static lv_obj_t *s_seg, *s_seg_btn[2], *s_seg_lbl[2];   // ANGLE | SPEED switch (shutter editor)
 static bool s_shut_speed;                               // shutter editor works in 1/x speeds
@@ -143,10 +151,17 @@ static char s_num_buf[8];
 typedef enum { NUM_ANGLE, NUM_SPEED, NUM_FPS } num_mode_t;
 static num_mode_t s_num_mode;
 
-// Quick off-speed rates for the FPS editor (0 = OFF: back to the project rate).
-static const int CHIPS[] = { 0, 30, 36, 48, 50, 60, 72, 96, 120 };
-#define NCHIPS ((int)(sizeof CHIPS / sizeof CHIPS[0]))
-static lv_obj_t *s_chips, *s_chip[NCHIPS], *s_chip_lbl[NCHIPS];
+// Quick picks along the bottom of each editor. A chip the camera can't do now is greyed out.
+static const int FPS_CHIPS[]   = { 0, 30, 36, 48, 50, 60, 72, 96, 120 };   // 0 = OFF: back to the project rate
+static const int ANGLE_CHIPS[] = { 4500, 9000, 14400, 17280, 18000, 21600, 27000, 36000 };
+static const int SPEED_CHIPS[] = { 48, 50, 60, 96, 100, 120, 250, 500 };
+static const int EI_CHIPS[]    = { 200, 400, 640, 800, 1000, 1250, 1600, 3200 };
+static const int WB_CHIPS[]    = { 3200, 4000, 4300, 5000, 5600, 6500, 7500 };
+#define MAX_CHIPS 9
+#define NOF(a) ((int)(sizeof(a) / sizeof((a)[0])))
+static lv_obj_t *s_chips, *s_chip[MAX_CHIPS], *s_chip_lbl[MAX_CHIPS];
+static const int *s_chip_val;
+static int s_nchips;
 static row_t s_row[2];
 static int s_ed_tile = -1;
 
@@ -317,6 +332,9 @@ static int32_t s_lk_from_x, s_lk_knob_from;
 static bool lock_allowed(void) { return s_st.connected && s_st.have_data && !s_st.recording; }
 
 static void lock_label_fade(void);
+static void flick_start(int x);
+static void flick_move(int x);
+static bool flick_end(void);
 static void anim_x_cb(void *o, int32_t v) { lv_obj_set_x(o, v); lock_label_fade(); }
 
 static void knob_to(int x, bool animate)
@@ -385,12 +403,14 @@ static void lock_cb(lv_event_t *e)
         lv_anim_delete(s_lk_knob, anim_x_cb);
         s_lk_from_x = p.x;
         s_lk_knob_from = lv_obj_get_x(s_lk_knob);
+        flick_start(s_lk_knob_from);
     } else if (code == LV_EVENT_PRESSING && s_lk_drag) {
         int x = s_lk_knob_from + (p.x - s_lk_from_x);
         x = x < s_lk_min ? s_lk_min : x > s_lk_max ? s_lk_max : x;
         if (x != lv_obj_get_x(s_lk_knob)) {
             lv_obj_set_x(s_lk_knob, x);
             lock_label_fade();
+            flick_move(x);
         }
     } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) && s_lk_drag) {
         s_lk_drag = false;
@@ -401,6 +421,7 @@ static void lock_cb(lv_event_t *e)
         lock_sync(true);
         knob_to(unlocked() ? s_lk_min : s_lk_max, true);
         lv_obj_set_style_text_opa(s_lk_lbl, 255, 0);
+        flick_end();
         force_redraw();
     }
 }
@@ -422,6 +443,255 @@ static void lock_nudge(void)
     lv_anim_start(&a);
 }
 
+// ---------- easter eggs ----------
+// Nothing here runs until it's triggered: each trigger is a counter in a handler that already
+// runs, and anything drawn is created when it starts and deleted when it ends. None of it works
+// while recording, and anything showing closes the moment recording starts.
+//  - Tap the little "TC" seven times: end credits.
+//  - In an editor, − − + + − + − + then Done: a film-leader countdown in the timecode tile.
+//    (The presses add up to nothing, so the value ends where it started.)
+//  - Whip the lock knob back and forth about five times in one drag: it spins.
+//  - Take 1 and take 100 get a line of their own after the usual "TAKE n" line.
+static lv_obj_t *box(lv_obj_t *parent);
+static lv_obj_t *text(lv_obj_t *parent, const lv_font_t *f, lv_color_t c);
+
+static lv_obj_t *s_credits, *s_leader, *s_leader_num, *s_leader_wedge;
+static int s_tc_taps;
+static uint32_t s_tc_tap_ms;
+static uint8_t s_code;                    // last presses in an editor, one bit each (1 = +)
+static int s_code_n;
+static uint32_t s_code_ms;
+static int s_flick_n, s_flick_dir, s_flick_x;
+static uint32_t s_flick_t0;
+
+static void eggs_close(void)
+{
+    if (s_credits) { lv_obj_delete(s_credits); s_credits = NULL; }
+    if (s_leader)  { lv_obj_delete(s_leader);  s_leader = NULL; }
+}
+
+// End credits: a slow crawl up the screen, round and round until tapped.
+static const char *CREDITS[][2] = {      // { heading, name }; a NULL heading is a big title line
+    { NULL, "FYXIS" },
+    { "", "A side display for the PYXIS 12K" },
+    { "DESIGNED AND BUILT BY", "Dan Barham" },
+    { "CODE", "Dan Barham with Claude" },
+    { "TYPEFACE", "Inter, by Rasmus Andersson" },
+    { "ICONS", "Tabler Icons" },
+    { "GRAPHICS", "LVGL" },
+    { "TIMECODE WRANGLER", "Bluetooth, 15 ms at a time" },
+    { "BEST BOY", "The REC button" },
+    { "CATERING", "Whoever is on take 100" },
+    { "", "No frames were dropped in the making of this display." },
+    { "", "For everyone who has ever slated a take by hand." },
+    { NULL, "FIN" },
+};
+
+static void credits_y_cb(void *o, int32_t v) { lv_obj_set_y(o, v); }
+static void credits_close_cb(lv_event_t *e) { (void)e; lv_obj_delete_async(s_credits); s_credits = NULL; }
+
+static void credits_open(void)
+{
+    lv_obj_t *scr = lv_screen_active();
+    const int W = lv_obj_get_width(scr), H = lv_obj_get_height(scr);
+    s_credits = box(scr);
+    lv_obj_set_size(s_credits, W, H);
+    lv_obj_set_style_bg_color(s_credits, C_BG, 0);
+    lv_obj_set_style_bg_opa(s_credits, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_credits, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_credits, credits_close_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *roll = box(s_credits);
+    lv_obj_set_size(roll, W, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(roll, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(roll, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(roll, 6, 0);
+    for (size_t i = 0; i < sizeof CREDITS / sizeof CREDITS[0]; i++) {
+        const char *head = CREDITS[i][0], *name = CREDITS[i][1];
+        if (!head) {                                  // title
+            lv_obj_t *l = text(roll, &font_value_64, C_TEXT);
+            lv_obj_set_style_text_letter_space(l, 8, 0);
+            lv_label_set_text(l, name);
+        } else {
+            if (head[0]) {
+                lv_obj_t *h = text(roll, &font_label_14, C_TEXT2);
+                lv_obj_set_style_text_letter_space(h, 2, 0);
+                lv_label_set_text(h, head);
+            }
+            lv_obj_t *l = text(roll, head[0] ? &font_mid_36 : &font_label_20, head[0] ? C_TEXT : C_TEXT2);
+            lv_obj_set_width(l, W - 80);
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+            lv_label_set_text(l, name);
+        }
+        if (i + 1 < sizeof CREDITS / sizeof CREDITS[0]) {   // space between credits
+            lv_obj_t *gap = box(roll);
+            lv_obj_set_size(gap, 1, 44);
+        }
+    }
+    lv_obj_update_layout(roll);
+    const int rh = lv_obj_get_height(roll);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, roll);
+    lv_anim_set_exec_cb(&a, credits_y_cb);
+    lv_anim_set_values(&a, H, -rh);
+    lv_anim_set_duration(&a, (uint32_t)(H + rh) * 25);   // 40 px a second
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
+// The "TC" label beside the timecode.
+static void tc_lbl_cb(lv_event_t *e)
+{
+    (void)e;
+    const uint32_t now = lv_tick_get();
+    if (s_st.recording || s_credits) return;
+    s_tc_taps = now - s_tc_tap_ms < 700 ? s_tc_taps + 1 : 1;
+    s_tc_tap_ms = now;
+    if (s_tc_taps >= 7) { s_tc_taps = 0; credits_open(); }
+}
+
+// Film-leader countdown in the timecode tile: 8 down to 2 with a sweeping wedge, a flash on 2
+// (where the leader's "2-pop" beep would be), then black.
+static void leader_cb(void *o, int32_t v)
+{
+    (void)o;
+    if (v >= 6100) {                                 // after the pop: black to the end
+        set_bg(s_leader, C_BG);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(s_leader); i++) set_shown(lv_obj_get_child(s_leader, i), false);
+        return;
+    }
+    set_bg(s_leader, v >= 6000 ? C_TEXT : C_TILE);   // the pop
+    const char d[2] = { (char)('8' - v / 1000), 0 };
+    set_text(s_leader_num, d);
+    lv_arc_set_angles(s_leader_wedge, 0, (v % 1000) * 360 / 1000);
+}
+
+static void leader_done_cb(lv_anim_t *a) { (void)a; if (s_leader) { lv_obj_delete_async(s_leader); s_leader = NULL; } }
+
+static void leader_start(void)
+{
+    if (s_leader || s_st.recording) return;
+    const int w = lv_obj_get_width(s_tc_tile), h = lv_obj_get_height(s_tc_tile);
+    s_leader = box(s_tc_tile);
+    lv_obj_set_size(s_leader, w, h);
+    lv_obj_set_style_bg_color(s_leader, C_TILE, 0);
+    lv_obj_set_style_bg_opa(s_leader, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(s_leader, RADIUS, 0);
+    lv_obj_add_flag(s_leader, LV_OBJ_FLAG_CLICKABLE);             // nothing under it while it runs
+
+    const int d = h - 22;                                          // inner circle (the wedge)
+    s_leader_wedge = lv_arc_create(s_leader);
+    lv_obj_remove_style_all(s_leader_wedge);
+    lv_obj_remove_flag(s_leader_wedge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(s_leader_wedge, d, d);
+    lv_obj_center(s_leader_wedge);
+    lv_arc_set_bg_angles(s_leader_wedge, 0, 360);
+    lv_arc_set_rotation(s_leader_wedge, 270);                      // from twelve o'clock
+    lv_obj_set_style_arc_width(s_leader_wedge, d / 2, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(s_leader_wedge, false, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_leader_wedge, C_SEG_ON, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_leader_wedge, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_transform_scale_x(s_leader_wedge, 256 * PX_W_PER_1000_H / 1000, 0);   // round on this panel
+    lv_obj_set_style_transform_pivot_x(s_leader_wedge, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_leader_wedge, lv_pct(50), 0);
+    lv_arc_set_angles(s_leader_wedge, 0, 0);
+
+    for (int i = 0; i < 2; i++) {                                  // two rings
+        const int rd = i ? d : d + 14;
+        lv_obj_t *r = box(s_leader);
+        lv_obj_set_size(r, rw(rd), rd);
+        lv_obj_center(r);
+        lv_obj_set_style_radius(r, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(r, 3, 0);
+        lv_obj_set_style_border_color(r, C_TEXT2, 0);
+        lv_obj_set_style_border_opa(r, LV_OPA_COVER, 0);
+    }
+    for (int i = 0; i < 2; i++) {                                  // crosshair across the frame
+        lv_obj_t *l = box(s_leader);
+        lv_obj_set_size(l, i ? 2 : w - 2 * RADIUS, i ? h : 2);
+        lv_obj_center(l);
+        lv_obj_set_style_bg_color(l, C_TEXT2, 0);
+        lv_obj_set_style_bg_opa(l, LV_OPA_60, 0);
+    }
+    s_leader_num = text(s_leader, &font_value_64, C_TEXT);
+    lv_obj_center(s_leader_num);
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_leader);
+    lv_anim_set_exec_cb(&a, leader_cb);
+    lv_anim_set_values(&a, 0, 7000);
+    lv_anim_set_duration(&a, 7000);
+    lv_anim_set_completed_cb(&a, leader_done_cb);
+    lv_anim_start(&a);
+}
+
+// An editor − (0) or + (1) press; a pause of 2 s starts the code again.
+static void code_press(int plus)
+{
+    const uint32_t now = lv_tick_get();
+    if (now - s_code_ms > 2000) s_code_n = 0;
+    s_code_ms = now;
+    s_code = (uint8_t)((s_code << 1) | (plus & 1));
+    if (s_code_n < 8) s_code_n++;
+}
+
+static bool code_entered(void)                    // − − + + − + − +, then Done straight after
+{
+    const bool ok = s_code_n >= 8 && s_code == 0x35 && lv_tick_get() - s_code_ms < 2000;
+    s_code_n = 0;
+    return ok;
+}
+
+// Lock knob: count changes of direction (of 30 px or more) within one drag.
+static void flick_start(int x) { s_flick_n = 0; s_flick_dir = 0; s_flick_x = x; s_flick_t0 = lv_tick_get(); }
+
+static void flick_move(int x)
+{
+    const int dx = x - s_flick_x;
+    if (s_flick_dir == 0) { if (dx > 12 || dx < -12) { s_flick_dir = dx > 0 ? 1 : -1; s_flick_x = x; } return; }
+    if (dx * s_flick_dir > 0) s_flick_x = x;                      // still going: track the far point
+    else if (dx * s_flick_dir <= -30) { s_flick_n++; s_flick_dir = -s_flick_dir; s_flick_x = x; }
+}
+
+static void spin_cb(void *o, int32_t v) { lv_obj_set_style_transform_rotation(o, v, 0); }
+static void spin_done_cb(lv_anim_t *a)
+{
+    lv_obj_set_style_transform_rotation(a->var, 0, 0);
+    lock_sync(false);                                              // knob colour and caption back
+}
+
+static bool flick_end(void)                       // true if it was a whip: spin the knob
+{
+    if (s_flick_n < 8 || lv_tick_get() - s_flick_t0 > 4000 || s_st.recording) return false;
+    lv_obj_set_style_bg_color(s_lk_knob, C_BLUE, 0);
+    lv_label_set_text(s_lk_lbl, "wheee!");
+    lv_obj_set_style_transform_pivot_x(s_lk_icon, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_lk_icon, lv_pct(50), 0);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_lk_icon);
+    lv_anim_set_exec_cb(&a, spin_cb);
+    lv_anim_set_values(&a, 0, 7200);                              // two turns (0.1 degree units)
+    lv_anim_set_duration(&a, 1100);
+    lv_anim_set_path_cb(&a, lv_anim_path_overshoot);
+    lv_anim_set_completed_cb(&a, spin_done_cb);
+    lv_anim_start(&a);
+    return true;
+}
+
+// Take milestones: shown for the second half of the "TAKE n" time after these takes.
+static const char *milestone(int take)
+{
+    switch (take) {
+    case 1:   return "Take 1 in the can. And we're off.";
+    case 100: return "Take 100. Someone owes the crew pizza.";
+    }
+    return NULL;
+}
+
 // ---------- editor ----------
 static void editor_close(void)
 {
@@ -435,7 +705,71 @@ static void row_place(row_t *r, int y, int btn)
     lv_obj_set_y(r->box, y);
     lv_obj_set_size(r->minus, rw(btn), btn);
     lv_obj_set_size(r->plus, rw(btn), btn);
+    lv_obj_align(r->minus, LV_ALIGN_TOP_LEFT, 28, r->vc - btn / 2);     // level with the digits
+    lv_obj_align(r->plus, LV_ALIGN_TOP_RIGHT, -28, r->vc - btn / 2);
     lv_obj_remove_flag(r->box, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Fill the chip bar for the open editor (and, for the shutter, the ANGLE | SPEED mode).
+static void chips_setup(void)
+{
+    switch (s_ed_tile) {
+    case T_FPS:  s_chip_val = FPS_CHIPS;  s_nchips = NOF(FPS_CHIPS); break;
+    case T_SHUT: s_chip_val = s_shut_speed ? SPEED_CHIPS : ANGLE_CHIPS;
+                 s_nchips = s_shut_speed ? NOF(SPEED_CHIPS) : NOF(ANGLE_CHIPS); break;
+    case T_EI:   s_chip_val = EI_CHIPS;   s_nchips = NOF(EI_CHIPS); break;
+    case T_WB:   s_chip_val = WB_CHIPS;   s_nchips = NOF(WB_CHIPS); break;
+    default:     s_nchips = 0;
+    }
+    for (int i = 0; i < MAX_CHIPS; i++) {
+        set_shown(s_chip[i], i < s_nchips);
+        if (i >= s_nchips) continue;
+        const int v = s_chip_val[i];
+        char txt[16];
+        switch (s_ed_tile) {
+        case T_FPS:  if (v) snprintf(txt, sizeof txt, "%d", v); else snprintf(txt, sizeof txt, "OFF"); break;
+        case T_SHUT: if (s_shut_speed) snprintf(txt, sizeof txt, "1/%d", v); else fmt_angle(txt, sizeof txt, v); break;
+        case T_WB:   snprintf(txt, sizeof txt, "%dK", v); break;
+        default:     snprintf(txt, sizeof txt, "%d", v);
+        }
+        set_text(s_chip_lbl[i], txt);
+    }
+}
+
+// on: the current value (white). ok: the camera can do it now (otherwise greyed out, ignored).
+static void chip_style(int i, bool on, bool ok)
+{
+    set_bg(s_chip[i], on ? C_TEXT : ok ? C_BTN : C_TILE);
+    set_text_color(s_chip_lbl[i], on ? C_BG : ok ? C_TEXT : C_STALE);
+    if (lv_obj_has_state(s_chip[i], LV_STATE_DISABLED) == ok) {
+        if (ok) lv_obj_remove_state(s_chip[i], LV_STATE_DISABLED);
+        else    lv_obj_add_state(s_chip[i], LV_STATE_DISABLED);
+    }
+}
+
+static void chips_refresh(void)
+{
+    const cam_state_t *st = &s_st;
+    const int max_fps = camproto_max_fps(st->res_w, st->res_h);
+    const double f = sensor_fps(st);
+    const int spd = speed_for_angle(st, st->shutter_angle_x100);
+    for (int i = 0; i < s_nchips; i++) {
+        const int v = s_chip_val[i];
+        bool on = false, ok = true;
+        switch (s_ed_tile) {
+        case T_FPS:
+            on = v == 0 ? !st->offspeed : (st->offspeed && st->offspeed_fps == v);
+            ok = v == 0 || v <= max_fps;
+            break;
+        case T_SHUT:
+            if (s_shut_speed) { on = spd == v; ok = v + 0.001 >= f; }   // no slower than one frame
+            else              on = st->shutter_angle_x100 == v;
+            break;
+        case T_EI: on = st->iso == v; break;
+        case T_WB: on = st->wb_kelvin == v; break;
+        }
+        chip_style(i, st->have_data && on, ok);
+    }
 }
 
 static void seg_render(void)
@@ -453,30 +787,31 @@ static void editor_refresh(void);
 static void editor_open(int t)
 {
     s_ed_tile = t;
+    s_code_n = 0;
     lv_obj_add_flag(s_num, LV_OBJ_FLAG_HIDDEN);
     const bool shut = (t == T_SHUT), fps = (t == T_FPS), custom = shut || fps;
     set_shown(s_seg, shut);
-    set_shown(s_chips, fps);
     set_shown(s_custom, custom);
-    lv_obj_align(s_done, LV_ALIGN_BOTTOM_MID, custom ? 85 : 0, -20);
+    lv_obj_align(s_done, LV_ALIGN_BOTTOM_MID, custom ? (ED_BTN_W + ED_BTN_GAP) / 2 : 0, -ED_BOTTOM);
 
     if (t == T_WB) {
         s_row[0].param = CAM_WB;   lv_label_set_text(s_row[0].label, "WHITE BALANCE");
         s_row[1].param = CAM_TINT; lv_label_set_text(s_row[1].label, "TINT");
-        row_place(&s_row[0], 24, 112);
-        row_place(&s_row[1], 214, 112);
+        row_place(&s_row[0], 6, 112);
+        row_place(&s_row[1], 182, 84);
     } else {
         if (shut) {
             lv_label_set_text(s_row[0].label, "");        // the ANGLE | SPEED switch is the heading
             seg_render();
-            row_place(&s_row[0], 100, 132);
+            row_place(&s_row[0], 60, 132);
         } else {
             s_row[0].param = fps ? CAM_FPS : CAM_ISO;
             lv_label_set_text(s_row[0].label, fps ? "RECORDING FRAME RATE" : TITLES[t]);
-            row_place(&s_row[0], fps ? 64 : 110, 132);
+            row_place(&s_row[0], fps ? 60 : 84, 132);
         }
         lv_obj_add_flag(s_row[1].box, LV_OBJ_FLAG_HIDDEN);
     }
+    chips_setup();
     editor_refresh();
     lv_obj_remove_flag(s_editor, LV_OBJ_FLAG_HIDDEN);
 }
@@ -505,15 +840,8 @@ static void editor_refresh(void)
         set_text(s_row[0].sub, sub);
         bool os = s_ed_tile == T_FPS && s_st.offspeed;
         set_text_color(s_row[0].value, os ? C_ORANGE : C_TEXT);
-        if (s_ed_tile == T_FPS) {
-            for (int i = 0; i < NCHIPS; i++) {
-                const bool on = s_st.have_data &&
-                                (CHIPS[i] == 0 ? !s_st.offspeed : (s_st.offspeed && s_st.offspeed_fps == CHIPS[i]));
-                set_bg(s_chip[i], on ? C_TEXT : C_BTN);
-                set_text_color(s_chip_lbl[i], on ? C_BG : C_TEXT);
-            }
-        }
     }
+    chips_refresh();
 }
 
 // ---------- exact shutter / frame-rate entry ----------
@@ -578,7 +906,13 @@ static void num_set_cb(lv_event_t *e)
     if (!s_num_buf[0]) return;
     if (s_num_mode == NUM_FPS) {
         const int f = atoi(s_num_buf);
-        if (f < 1 || f > 120) { num_error("Enter 1 to 120 (the camera may allow less at this resolution)"); return; }
+        const int max = camproto_max_fps(s_st.res_w, s_st.res_h);
+        if (f < 1 || f > max) {
+            char msg[48];
+            snprintf(msg, sizeof msg, "Enter 1 to %d at this resolution", max);
+            num_error(msg);
+            return;
+        }
         camera_set_fps(f);
     } else if (s_num_mode == NUM_SPEED) {
         const int d = atoi(s_num_buf);
@@ -607,15 +941,23 @@ static void custom_cb(lv_event_t *e)
 
 static void chip_cb(lv_event_t *e)
 {
-    if (!unlocked() || s_st.recording) return;
-    const int v = (int)(intptr_t)lv_event_get_user_data(e);
-    camera_set_fps(v ? v : s_st.project_fps);
+    if (!unlocked() || s_st.recording || s_ed_tile < 0) return;
+    const int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i >= s_nchips || lv_obj_has_state(s_chip[i], LV_STATE_DISABLED)) return;
+    const int v = s_chip_val[i];
+    switch (s_ed_tile) {
+    case T_FPS:  camera_set_fps(v ? v : s_st.project_fps); break;
+    case T_SHUT: if (s_shut_speed) camera_set_shutter_speed(v); else camera_set_shutter_angle(v); break;
+    case T_EI:   camera_set_iso(v); break;
+    case T_WB:   camera_set_wb(v, s_st.tint); break;
+    }
 }
 
 static void seg_cb(lv_event_t *e)
 {
     s_shut_speed = (intptr_t)lv_event_get_user_data(e) == 1;
     seg_render();
+    chips_setup();
     force_redraw();
 }
 
@@ -636,10 +978,15 @@ static void step_cb(lv_event_t *e)
     if (code != LV_EVENT_SHORT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
     if (!unlocked() || s_st.recording || s_ed_tile < 0) return;
     const intptr_t ud = (intptr_t)lv_event_get_user_data(e);   // row * 2 + (plus ? 1 : 0)
+    if (code == LV_EVENT_SHORT_CLICKED) code_press(ud & 1);
     camera_step(s_row[ud / 2].param, (ud & 1) ? +1 : -1);
 }
 
-static void done_cb(lv_event_t *e) { editor_close(); }
+static void done_cb(lv_event_t *e)
+{
+    editor_close();
+    if (code_entered()) leader_start();
+}
 
 // ---------- PIN entry ----------
 static void pin_render(void)
@@ -1399,6 +1746,7 @@ static void update_status(uint32_t now)
     const bool live = s_st.connected;
     lv_color_t c = C_TEXT2;
     bool dot = false;
+    const char *ms = NULL;                          // take milestone, across the whole line
     if (!live) {
         snprintf(b, sizeof b, "%s", s_st.link == LINK_PAIRING ? "PAIRING" :
                                     s_st.link == LINK_CONNECTING ? "CONNECTING" :
@@ -1422,6 +1770,7 @@ static void update_status(uint32_t now)
         fmt_hms(t, sizeof t, s_takes[s_ntakes - 1].secs);
         snprintf(b, sizeof b, "TAKE %d  %s", s_takes[s_ntakes - 1].no, t);
         c = C_TEXT;
+        if (s_last_take_until - now < 4000) ms = milestone(s_takes[s_ntakes - 1].no);
     } else if (s_st.lens_fstop_x10 || s_st.lens_focal_mm) {           // lens, if the camera reports it
         char f[16] = "", m[16] = "";
         if (s_st.lens_fstop_x10) snprintf(f, sizeof f, "f/%d.%d", s_st.lens_fstop_x10 / 10, s_st.lens_fstop_x10 % 10);
@@ -1436,6 +1785,10 @@ static void update_status(uint32_t now)
     set_text(s_status, b);
     set_text_color(s_status, c);
     set_shown(s_status_dot, dot);
+    if (ms) set_text(s_milestone, ms);
+    set_shown(s_milestone, ms != NULL);
+    set_shown(s_st_row, ms == NULL);
+    set_shown(s_slot_row, ms == NULL);
 }
 
 static void update_values(void)
@@ -1673,7 +2026,7 @@ static void tick_cb(lv_timer_t *t)
     track_recording(now);
     xl_tick(now);
     if ((s_st.recording || !s_st.connected || !unlocked()) && s_ed_tile >= 0) editor_close();
-    if (s_st.recording) { settings_close(); presets_close(); bv_close(); }
+    if (s_st.recording) { settings_close(); presets_close(); bv_close(); eggs_close(); }
     if (s_st.seq != s_seq_drawn) {
         s_seq_drawn = s_st.seq;
         update_values();
@@ -1777,23 +2130,24 @@ static lv_obj_t *hairline(lv_obj_t *parent, int w)
     return r;
 }
 
+// Editor row. Row 0: caption 0-20, big digits 48-150 (132 px font), second line 172-200.
+// Row 1 (tint, under white balance) is smaller: caption, then 64 px digits, no second line.
 static void build_row(row_t *r, lv_obj_t *parent, int W, int index)
 {
+    const bool big = index == 0;
     r->box = box(parent);
-    lv_obj_set_size(r->box, W, 200);
+    lv_obj_set_size(r->box, W, big ? 210 : 130);
     r->label = caption(r->box, "");
     lv_obj_set_style_text_letter_space(r->label, 2, 0);
     lv_obj_align(r->label, LV_ALIGN_TOP_MID, 0, 0);
-    // 200 px row: caption 0-24, value 30-145 (115 px font), second line 150-194.
-    r->value = text(r->box, &font_big_132, C_TEXT);
-    lv_obj_align(r->value, LV_ALIGN_TOP_MID, 0, 30);
+    r->value = text(r->box, big ? &font_big_132 : &font_value_64, C_TEXT);
+    lv_obj_align(r->value, LV_ALIGN_TOP_MID, 0, big ? 44 : 32);   // clear of the caption
     r->sub = text(r->box, &font_mid_36, C_TEXT2);
-    lv_obj_align(r->sub, LV_ALIGN_TOP_MID, 0, 150);
+    lv_obj_align(r->sub, LV_ALIGN_TOP_MID, 0, 164);
+    r->vc = big ? 99 : 70;                                         // middle of the digits
     r->minus = round_button(r->box, ICON_MINUS, &font_icons_48, C_BTN);
-    lv_obj_align(r->minus, LV_ALIGN_LEFT_MID, 28, -13);
     lv_obj_add_event_cb(r->minus, step_cb, LV_EVENT_ALL, (void *)(intptr_t)(index * 2));
     r->plus = round_button(r->box, ICON_PLUS, &font_icons_48, C_BTN);
-    lv_obj_align(r->plus, LV_ALIGN_RIGHT_MID, -28, -13);
     lv_obj_add_event_cb(r->plus, step_cb, LV_EVENT_ALL, (void *)(intptr_t)(index * 2 + 1));
 }
 
@@ -2245,6 +2599,9 @@ static void build(void)
     lv_obj_set_style_text_letter_space(s_tc_lbl, 1, 0);
     lv_label_set_text(s_tc_lbl, "TC");
     lv_obj_set_pos(s_tc_lbl, x, tc_y + 34);                       // on the digits' cap height
+    lv_obj_add_flag(s_tc_lbl, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(s_tc_lbl, 16);
+    lv_obj_add_event_cb(s_tc_lbl, tc_lbl_cb, LV_EVENT_CLICKED, NULL);
     x += lbl_w + lbl_gap;
     for (int i = 0; i < 11; i++) {
         const int w = i % 3 == 2 ? col_w : dig_w;
@@ -2257,7 +2614,7 @@ static void build(void)
 
     // Bottom line: status (left), card slots (right).
     const int half_w = 116, slot_w = 2 * half_w + 1 + 2 * 12;
-    lv_obj_t *st_row = box(s_tc_tile);
+    lv_obj_t *st_row = s_st_row = box(s_tc_tile);
     lv_obj_set_size(st_row, tc_w - 2 * TC_PAD - slot_w - 8, 26);
     lv_obj_set_flex_flow(st_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(st_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -2271,7 +2628,7 @@ static void build(void)
     lv_obj_add_flag(s_status_dot, LV_OBJ_FLAG_HIDDEN);
     s_status = caption(st_row, "");
 
-    lv_obj_t *slot_row = box(s_tc_tile);
+    lv_obj_t *slot_row = s_slot_row = box(s_tc_tile);
     lv_obj_set_size(slot_row, slot_w, 26);
     lv_obj_set_flex_flow(slot_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(slot_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -2297,6 +2654,9 @@ static void build(void)
         s_slot_lbl[i] = text(half, &font_label_20, C_STALE);
         lv_label_set_text(s_slot_lbl[i], MINUS MINUS);
     }
+    s_milestone = text(s_tc_tile, &font_label_20, C_TEXT);          // take milestone, whole line
+    lv_obj_set_pos(s_milestone, TC_PAD, tc_h - 14 - 26 + 2);
+    lv_obj_add_flag(s_milestone, LV_OBJ_FLAG_HIDDEN);
 
     // ---- Lock track ----
     s_lk = box(scr);
@@ -2383,33 +2743,34 @@ static void build(void)
     lv_obj_add_flag(s_editor, LV_OBJ_FLAG_CLICKABLE);              // swallow touches behind it
     build_row(&s_row[0], s_editor, W, 0);
     build_row(&s_row[1], s_editor, W, 1);
+    // Done (and Custom): big, along the bottom edge, so they're quick to hit.
     s_done = pill(s_editor, "Done", C_BTN);
-    lv_obj_align(s_done, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_set_size(s_done, ED_BTN_W, ED_BTN_H);
+    lv_obj_align(s_done, LV_ALIGN_BOTTOM_MID, 0, -ED_BOTTOM);
     lv_obj_add_event_cb(s_done, done_cb, LV_EVENT_CLICKED, NULL);
     s_custom = pill(s_editor, "Custom", C_BTN);
-    lv_obj_align(s_custom, LV_ALIGN_BOTTOM_MID, -85, -20);
+    lv_obj_set_size(s_custom, ED_BTN_W, ED_BTN_H);
+    lv_obj_align(s_custom, LV_ALIGN_BOTTOM_MID, -(ED_BTN_W + ED_BTN_GAP) / 2, -ED_BOTTOM);
     lv_obj_add_event_cb(s_custom, custom_cb, LV_EVENT_CLICKED, NULL);
 
-    // Quick off-speed rates for the FPS editor.
+    // Quick picks, just above Done; chips_setup() labels them for the open editor.
     s_chips = box(s_editor);
-    lv_obj_set_size(s_chips, W - 40, 56);
-    lv_obj_align(s_chips, LV_ALIGN_BOTTOM_MID, 0, -92);
+    lv_obj_set_size(s_chips, W - 2 * 20, CHIP_H);
+    lv_obj_align(s_chips, LV_ALIGN_BOTTOM_MID, 0, -(ED_BOTTOM + ED_BTN_H + 12));
     lv_obj_set_flex_flow(s_chips, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(s_chips, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    for (int i = 0; i < NCHIPS; i++) {
+    lv_obj_set_flex_align(s_chips, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_chips, 10, 0);
+    for (int i = 0; i < MAX_CHIPS; i++) {
         lv_obj_t *c = box(s_chips);
-        lv_obj_set_size(c, 76, 52);
+        lv_obj_set_size(c, 10, CHIP_H);
+        lv_obj_set_flex_grow(c, 1);                                 // equal widths across the bar
         lv_obj_set_style_bg_color(c, C_BTN, 0);
         lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(c, C_BTN_PR, LV_STATE_PRESSED);
         lv_obj_set_style_radius(c, LV_RADIUS_CIRCLE, 0);
         lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(c, chip_cb, LV_EVENT_CLICKED, (void *)(intptr_t)CHIPS[i]);
-        char txt[8];
-        if (CHIPS[i]) snprintf(txt, sizeof txt, "%d", CHIPS[i]);
-        else          snprintf(txt, sizeof txt, "OFF");
+        lv_obj_add_event_cb(c, chip_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         s_chip_lbl[i] = text(c, &font_label_20, C_TEXT);
-        lv_label_set_text(s_chip_lbl[i], txt);
         lv_obj_center(s_chip_lbl[i]);
         s_chip[i] = c;
     }
@@ -2542,6 +2903,7 @@ static void rebuild_async(void *arg)
     s_tally_w = -1;
     s_ed_tile = -1;
     s_lk_drag = false;
+    s_credits = s_leader = NULL;                   // cleaned with the screen
     build();
     force_redraw();
     settings_open();                                // back where the change was made
